@@ -1,0 +1,46 @@
+version: 2
+updates:
+  # Rust dependencies
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "rust"
+      - "core"
+    groups:
+      # Group all crypto packages together - CRITICAL for protocol-core
+      rust-cryptography:
+        patterns:
+          - "pqcrypto-*"
+          - "ed25519-*"
+          - "sha2"
+          - "sha3"
+          - "blake3"
+          - "ring"
+          - "argon2"
+          - "subtle"
+          - "zeroize"
+          - "rand"
+          - "rand_core"
+      # Serialization - ABI critical
+      rust-serialization:
+        patterns:
+          - "serde"
+          - "serde_json"
+          - "postcard"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-prerelease"]
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci"
