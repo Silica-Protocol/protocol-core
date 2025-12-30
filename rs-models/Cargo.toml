@@ -41,10 +41,5 @@ pqcrypto-traits = { workspace = true }
 libc = { workspace = true }
 tracing = { workspace = true }
 
-# ZK-proof dependencies (Halo2 proving system)
-halo2_proofs = "0.3"
-halo2_gadgets = "0.3"
-ff = "0.13"           # Finite field arithmetic
-group = "0.13"        # Elliptic curve groups
-pasta_curves = "0.5"  # Pallas/Vesta curves for Halo2
-bincode = "1.3"       # Proof serialization
+# Note: ZK-proof dependencies (halo2, pasta_curves, etc.) belong in protocol/zkbridge-proofs
+# silica-models should remain a minimal dependency for other crates
