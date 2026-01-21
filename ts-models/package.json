@@ -1,23 +1,23 @@
 {
-  "name": "@chert/ts-models",
+  "name": "@silica-protocol/explorer-models",
   "version": "0.1.0",
-  "description": "Shared TypeScript domain models for Chert frontends",
+  "description": "Shared TypeScript domain models for Silica explorer frontends",
   "license": "Apache-2.0",
   "sideEffects": false,
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
     },
     "./*": {
-      "types": "./dist/*.d.ts",
-      "default": "./dist/*.js"
+      "types": "./dist/src/*.d.ts",
+      "default": "./dist/src/*.js"
     }
   },
-  "types": "./dist/index.d.ts",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
+  "types": "./dist/src/index.d.ts",
+  "main": "./dist/src/index.js",
+  "module": "./dist/src/index.js",
   "files": [
     "dist"
   ],
@@ -38,5 +38,8 @@
     "@typescript-eslint/parser": "7.11.0",
     "eslint": "8.57.1",
     "vitest": "2.1.4"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
   }
 }
