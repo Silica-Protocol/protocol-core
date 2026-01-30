@@ -68,8 +68,9 @@ pub struct ChertSignature {
 pub struct ChertKeyPair {
     pub algorithm: SignatureAlgorithm,
     #[zeroize(skip)] // Don't zeroize public key
+    #[serde(with = "hex_bytes")]
     pub public_key: Vec<u8>,
-    #[serde(with = "sensitive_bytes")]
+    #[serde(with = "hex_bytes")]
     pub private_key: Vec<u8>, // Will be zeroized on drop
 }
 
@@ -112,7 +113,7 @@ impl KyberCiphertext {
 /// Kyber shared secret container that zeroizes on drop
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ZeroizeOnDrop)]
 pub struct KyberSharedSecret {
-    #[serde(with = "sensitive_bytes")]
+    #[serde(with = "hex_bytes")]
     secret: Vec<u8>,
 }
 
@@ -146,8 +147,9 @@ impl KyberSharedSecret {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ZeroizeOnDrop)]
 pub struct KyberKeyPair {
     #[zeroize(skip)]
+    #[serde(with = "hex_bytes")]
     public_key: Vec<u8>,
-    #[serde(with = "sensitive_bytes")]
+    #[serde(with = "hex_bytes")]
     private_key: Vec<u8>,
 }
 
@@ -258,6 +260,127 @@ mod sensitive_bytes {
         }
 
         deserializer.deserialize_bytes(BytesVisitor)
+    }
+}
+
+/// Hex encoding for binary data in JSON (much more compact than byte arrays)
+mod hex_bytes {
+    use serde::{Deserialize, Deserializer, Serializer, de::SeqAccess};
+
+    pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&hex::encode(bytes))
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct HexOrArrayVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for HexOrArrayVisitor {
+            type Value = Vec<u8>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a hex string or byte array")
+            }
+
+            // New format: hex string
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                hex::decode(v).map_err(|e| E::custom(format!("invalid hex: {}", e)))
+            }
+
+            // Legacy format: byte array
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut bytes = Vec::new();
+                while let Some(byte) = seq.next_element()? {
+                    bytes.push(byte);
+                }
+                Ok(bytes)
+            }
+
+            // Binary format (e.g., from postcard)
+            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(v.to_vec())
+            }
+        }
+
+        deserializer.deserialize_any(HexOrArrayVisitor)
+    }
+}
+
+/// Hex encoding for optional binary data
+pub mod hex_bytes_option {
+    use serde::{Deserialize, Deserializer, Serializer, de::SeqAccess};
+
+    pub fn serialize<S>(bytes: &Option<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match bytes {
+            Some(b) => serializer.serialize_some(&hex::encode(b)),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let opt: Option<HexOrArray> = Option::deserialize(deserializer)?;
+        Ok(opt.map(|h| h.0))
+    }
+
+    struct HexOrArray(Vec<u8>);
+
+    impl<'de> Deserialize<'de> for HexOrArray {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            struct Visitor;
+
+            impl<'de> serde::de::Visitor<'de> for Visitor {
+                type Value = HexOrArray;
+
+                fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    f.write_str("hex string or byte array")
+                }
+
+                fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error,
+                {
+                    hex::decode(v)
+                        .map(HexOrArray)
+                        .map_err(|e| E::custom(format!("invalid hex: {}", e)))
+                }
+
+                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                where
+                    A: SeqAccess<'de>,
+                {
+                    let mut bytes = Vec::new();
+                    while let Some(byte) = seq.next_element()? {
+                        bytes.push(byte);
+                    }
+                    Ok(HexOrArray(bytes))
+                }
+            }
+
+            deserializer.deserialize_any(Visitor)
+        }
     }
 }
 
