@@ -264,6 +264,7 @@ mod sensitive_bytes {
 }
 
 /// Hex encoding for binary data in JSON (much more compact than byte arrays)
+/// Compatible with both human-readable (JSON) and binary (postcard) formats
 mod hex_bytes {
     use serde::{Deserialize, Deserializer, Serializer, de::SeqAccess};
 
@@ -271,66 +272,101 @@ mod hex_bytes {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&hex::encode(bytes))
+        if serializer.is_human_readable() {
+            // JSON and other text formats: use hex string
+            serializer.serialize_str(&hex::encode(bytes))
+        } else {
+            // Postcard and other binary formats: use raw bytes
+            serializer.serialize_bytes(bytes)
+        }
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
     where
         D: Deserializer<'de>,
     {
-        struct HexOrArrayVisitor;
+        if deserializer.is_human_readable() {
+            // JSON: expect hex string or byte array for backwards compatibility
+            struct HexOrArrayVisitor;
 
-        impl<'de> serde::de::Visitor<'de> for HexOrArrayVisitor {
-            type Value = Vec<u8>;
+            impl<'de> serde::de::Visitor<'de> for HexOrArrayVisitor {
+                type Value = Vec<u8>;
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a hex string or byte array")
-            }
-
-            // New format: hex string
-            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                hex::decode(v).map_err(|e| E::custom(format!("invalid hex: {}", e)))
-            }
-
-            // Legacy format: byte array
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: SeqAccess<'de>,
-            {
-                let mut bytes = Vec::new();
-                while let Some(byte) = seq.next_element()? {
-                    bytes.push(byte);
+                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    formatter.write_str("a hex string or byte array")
                 }
-                Ok(bytes)
+
+                // New format: hex string
+                fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error,
+                {
+                    hex::decode(v).map_err(|e| E::custom(format!("invalid hex: {}", e)))
+                }
+
+                // Legacy format: byte array
+                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                where
+                    A: SeqAccess<'de>,
+                {
+                    let mut bytes = Vec::new();
+                    while let Some(byte) = seq.next_element()? {
+                        bytes.push(byte);
+                    }
+                    Ok(bytes)
+                }
             }
 
-            // Binary format (e.g., from postcard)
-            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(v.to_vec())
+            deserializer.deserialize_any(HexOrArrayVisitor)
+        } else {
+            // Postcard: expect raw bytes
+            struct BytesVisitor;
+
+            impl<'de> serde::de::Visitor<'de> for BytesVisitor {
+                type Value = Vec<u8>;
+
+                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    formatter.write_str("byte array")
+                }
+
+                fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error,
+                {
+                    Ok(v.to_vec())
+                }
+
+                fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E>
+                where
+                    E: serde::de::Error,
+                {
+                    Ok(v)
+                }
             }
+
+            deserializer.deserialize_bytes(BytesVisitor)
         }
-
-        deserializer.deserialize_any(HexOrArrayVisitor)
     }
 }
 
 /// Hex encoding for optional binary data
+/// Compatible with both human-readable (JSON) and binary (postcard) formats
 pub mod hex_bytes_option {
-    use serde::{Deserialize, Deserializer, Serializer, de::SeqAccess};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer, de::SeqAccess};
 
     pub fn serialize<S>(bytes: &Option<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        match bytes {
-            Some(b) => serializer.serialize_some(&hex::encode(b)),
-            None => serializer.serialize_none(),
+        if serializer.is_human_readable() {
+            // JSON: serialize as hex string or null
+            match bytes {
+                Some(b) => serializer.serialize_some(&hex::encode(b)),
+                None => serializer.serialize_none(),
+            }
+        } else {
+            // Postcard: use native Option<Vec<u8>> serialization
+            bytes.serialize(serializer)
         }
     }
 
@@ -338,8 +374,14 @@ pub mod hex_bytes_option {
     where
         D: Deserializer<'de>,
     {
-        let opt: Option<HexOrArray> = Option::deserialize(deserializer)?;
-        Ok(opt.map(|h| h.0))
+        if deserializer.is_human_readable() {
+            // JSON: use the flexible HexOrArray that handles hex strings and arrays
+            let opt: Option<HexOrArray> = Option::deserialize(deserializer)?;
+            Ok(opt.map(|h| h.0))
+        } else {
+            // Postcard: use native Option<Vec<u8>> deserialization
+            Option::<Vec<u8>>::deserialize(deserializer)
+        }
     }
 
     struct HexOrArray(Vec<u8>);
