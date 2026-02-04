@@ -458,6 +458,116 @@ impl NameRecord {
 // NameRegistry - Name Storage & Resolution
 // ============================================================================
 
+/// Serialization helper for BTreeMap<SilicaName, NameRecord>
+/// 
+/// JSON requires string keys, so we serialize SilicaName as its full_name string.
+mod names_map_serde {
+    use super::*;
+    use serde::de::{MapAccess, Visitor};
+    use serde::ser::SerializeMap;
+
+    pub fn serialize<S>(
+        map: &BTreeMap<SilicaName, NameRecord>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut map_ser = serializer.serialize_map(Some(map.len()))?;
+        for (k, v) in map {
+            map_ser.serialize_entry(k.full_name(), v)?;
+        }
+        map_ser.end()
+    }
+
+    pub fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<BTreeMap<SilicaName, NameRecord>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct NamesMapVisitor;
+
+        impl<'de> Visitor<'de> for NamesMapVisitor {
+            type Value = BTreeMap<SilicaName, NameRecord>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a map with string keys representing SilicaName")
+            }
+
+            fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut map = BTreeMap::new();
+                while let Some((key, value)) = access.next_entry::<String, NameRecord>()? {
+                    // Parse the string key back to SilicaName
+                    // Use parse_system to allow silica.* names
+                    let name = SilicaName::parse_system(&key)
+                        .map_err(|_| serde::de::Error::custom(format!("invalid name: {}", key)))?;
+                    map.insert(name, value);
+                }
+                Ok(map)
+            }
+        }
+
+        deserializer.deserialize_map(NamesMapVisitor)
+    }
+}
+
+/// Serialization helper for BTreeMap<String, SilicaName>
+mod reverse_map_serde {
+    use super::*;
+    use serde::de::{MapAccess, Visitor};
+    use serde::ser::SerializeMap;
+
+    pub fn serialize<S>(
+        map: &BTreeMap<String, SilicaName>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut map_ser = serializer.serialize_map(Some(map.len()))?;
+        for (k, v) in map {
+            map_ser.serialize_entry(k, v.full_name())?;
+        }
+        map_ser.end()
+    }
+
+    pub fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<BTreeMap<String, SilicaName>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct ReverseMapVisitor;
+
+        impl<'de> Visitor<'de> for ReverseMapVisitor {
+            type Value = BTreeMap<String, SilicaName>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a map with string keys and string values representing SilicaName")
+            }
+
+            fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut map = BTreeMap::new();
+                while let Some((key, value)) = access.next_entry::<String, String>()? {
+                    let name = SilicaName::parse_system(&value)
+                        .map_err(|_| serde::de::Error::custom(format!("invalid name: {}", value)))?;
+                    map.insert(key, name);
+                }
+                Ok(map)
+            }
+        }
+
+        deserializer.deserialize_map(ReverseMapVisitor)
+    }
+}
+
 /// Registry for name → address mapping.
 ///
 /// This is the core data structure for the naming system, typically
@@ -465,8 +575,10 @@ impl NameRecord {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NameRegistry {
     /// Forward resolution: name → record
+    #[serde(with = "names_map_serde")]
     names: BTreeMap<SilicaName, NameRecord>,
     /// Reverse resolution: address → primary name
+    #[serde(with = "reverse_map_serde")]
     reverse: BTreeMap<String, SilicaName>,
 }
 
@@ -541,6 +653,11 @@ impl NameRegistry {
     /// Get the full record for a name.
     pub fn get_record(&self, name: &SilicaName) -> Option<&NameRecord> {
         self.names.get(name)
+    }
+
+    /// Get the total number of registered names.
+    pub fn name_count(&self) -> usize {
+        self.names.len()
     }
 
     /// Register a new user name.

@@ -44,6 +44,10 @@ pqcrypto-dilithium = { workspace = true }
 pqcrypto-kyber = { workspace = true }
 pqcrypto-traits = { workspace = true }
 
+# Mnemonic derivation (SIP-1)
+ml-dsa-bip39 = { workspace = true }
+bip39 = { workspace = true }
+
 # System interfaces
 libc = { workspace = true }
 tracing = { workspace = true }

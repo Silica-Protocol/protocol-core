@@ -20,6 +20,16 @@ use ml_dsa::VerifyingKey as MlDsaVerifyingKey;
 use ml_dsa::Signature as MlDsaSignature;
 use ml_dsa::signature::{Signer as MlDsaSigner, Verifier as MlDsaVerifier, SignatureEncoding};
 
+// Mnemonic derivation (SIP-1) - re-export for consumers
+pub use ml_dsa_bip39::{
+    mnemonic_to_seed,
+    derive_keypair as derive_ml_dsa_keypair,
+    derive_keypair_with_coin,
+    SILICA_COIN_TYPE,
+};
+// Use alias to avoid conflict with local MlDsaLevel
+use ml_dsa_bip39::MlDsaLevel as Sip1Level;
+
 // Platform-specific imports for secure memory (used in secure memory functions)
 #[cfg(unix)]
 #[allow(unused_imports)]
@@ -662,6 +672,72 @@ impl ChertKeyPair {
     pub fn generate_dilithium2() -> Result<Self> {
         // Use ML-DSA-44 which is equivalent to Dilithium2
         Self::generate_ml_dsa_at_level(MlDsaLevel::Dsa44)
+    }
+
+    /// Derive an ML-DSA keypair from a BIP39 mnemonic (SIP-1 standard)
+    /// 
+    /// This enables 24-word seed phrase backup for post-quantum accounts.
+    /// The derivation is fully deterministic - same mnemonic always produces
+    /// the same keypair.
+    /// 
+    /// # Arguments
+    /// * `mnemonic` - 12 or 24 word BIP39 phrase
+    /// * `passphrase` - Optional passphrase (use "" for none)
+    /// * `account` - Account index (usually 0)
+    /// * `index` - Key index within the account
+    /// * `level` - ML-DSA security level
+    /// 
+    /// # Example
+    /// ```ignore
+    /// let mnemonic = "abandon abandon abandon abandon abandon abandon \
+    ///                 abandon abandon abandon abandon abandon about";
+    /// let keypair = ChertKeyPair::derive_from_mnemonic(
+    ///     mnemonic, "", 0, 0, MlDsaLevel::default()
+    /// )?;
+    /// ```
+    pub fn derive_from_mnemonic(
+        mnemonic: &str,
+        passphrase: &str,
+        account: u32,
+        index: u32,
+        level: MlDsaLevel,
+    ) -> Result<Self> {
+        let seed = ml_dsa_bip39::mnemonic_to_seed(mnemonic, passphrase)
+            .map_err(|e| anyhow::anyhow!("Invalid mnemonic: {}", e))?;
+        
+        // Convert local MlDsaLevel to ml-dsa-bip39's level type
+        let sip1_level = match level {
+            MlDsaLevel::Dsa44 => Sip1Level::Dsa44,
+            MlDsaLevel::Dsa65 => Sip1Level::Dsa65,
+            MlDsaLevel::Dsa87 => Sip1Level::Dsa87,
+        };
+        
+        let sip1_keypair = ml_dsa_bip39::derive_keypair(&seed, account, index, sip1_level)
+            .map_err(|e| anyhow::anyhow!("Key derivation failed: {}", e))?;
+        
+        let algorithm = match level {
+            MlDsaLevel::Dsa44 => SignatureAlgorithm::MlDsa44,
+            MlDsaLevel::Dsa65 => SignatureAlgorithm::MlDsa65,
+            MlDsaLevel::Dsa87 => SignatureAlgorithm::MlDsa87,
+        };
+        
+        Ok(Self {
+            algorithm,
+            public_key: sip1_keypair.public_key().to_vec(),
+            private_key: sip1_keypair.seed().to_vec(),
+        })
+    }
+    
+    /// Derive ML-DSA-44 keypair from mnemonic with defaults
+    /// 
+    /// Convenience method using default security level (ML-DSA-44).
+    pub fn derive_from_mnemonic_default(
+        mnemonic: &str,
+        passphrase: &str,
+        account: u32,
+        index: u32,
+    ) -> Result<Self> {
+        Self::derive_from_mnemonic(mnemonic, passphrase, account, index, MlDsaLevel::default())
     }
 
     /// Sign data with the keypair's algorithm
@@ -1443,6 +1519,61 @@ mod tests {
         // Address format should be 0x + 40 hex chars
         assert!(address.starts_with("0x"));
         assert_eq!(address.len(), 42);
+    }
+    
+    #[test]
+    fn test_derive_from_mnemonic() {
+        let mnemonic = "abandon abandon abandon abandon abandon abandon \
+                        abandon abandon abandon abandon abandon about";
+        
+        // Derive keypair using SIP-1 standard
+        let kp = ChertKeyPair::derive_from_mnemonic(
+            mnemonic, "", 0, 0, MlDsaLevel::default()
+        ).unwrap();
+        
+        // Should be ML-DSA-44 (default level)
+        assert_eq!(kp.algorithm, SignatureAlgorithm::MlDsa44);
+        assert_eq!(kp.public_key.len(), 1312);
+        assert_eq!(kp.private_key.len(), 32); // 32-byte seed
+        
+        // Should be deterministic
+        let kp2 = ChertKeyPair::derive_from_mnemonic(
+            mnemonic, "", 0, 0, MlDsaLevel::Dsa44
+        ).unwrap();
+        
+        assert_eq!(kp.public_key, kp2.public_key);
+        assert_eq!(kp.private_key, kp2.private_key);
+        
+        // Different index = different keys
+        let kp3 = ChertKeyPair::derive_from_mnemonic(
+            mnemonic, "", 0, 1, MlDsaLevel::Dsa44
+        ).unwrap();
+        
+        assert_ne!(kp.public_key, kp3.public_key);
+        
+        // Passphrase changes everything
+        let kp_pass = ChertKeyPair::derive_from_mnemonic(
+            mnemonic, "secret", 0, 0, MlDsaLevel::Dsa44
+        ).unwrap();
+        
+        assert_ne!(kp.public_key, kp_pass.public_key);
+    }
+    
+    #[test]
+    fn test_derive_from_mnemonic_sign_verify() {
+        let mnemonic = "abandon abandon abandon abandon abandon abandon \
+                        abandon abandon abandon abandon abandon about";
+        
+        let kp = ChertKeyPair::derive_from_mnemonic_default(mnemonic, "", 0, 0).unwrap();
+        
+        let message = b"Hello post-quantum world!";
+        let signature = kp.sign(message).unwrap();
+        
+        // Verify with same keypair
+        assert!(kp.verify(message, &signature).unwrap());
+        
+        // Wrong message should fail
+        assert!(!kp.verify(b"wrong message", &signature).unwrap());
     }
 }
 

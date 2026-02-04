@@ -70,6 +70,16 @@ pqcrypto-kyber = "=0.8.1"
 pqcrypto-traits = "=0.3.5"
 
 # ============================================================================
+# MNEMONIC DERIVATION - SIP-1 Standard
+# ============================================================================
+# BIP39 mnemonic derivation for ML-DSA
+# Development: use local path
+# ml-dsa-bip39 = { path = "../ml-dsa-bip39" }
+# Production: use git
+ml-dsa-bip39 = { git = "https://github.com/Silica-Protocol/ml-dsa-bip39", branch = "main" }
+bip39 = "2.1"
+
+# ============================================================================
 # PROFILES
 # ============================================================================
 [profile.release]
