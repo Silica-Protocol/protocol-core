@@ -156,6 +156,9 @@ pub struct SilicaName {
 impl SilicaName {
     /// Parse and validate a name string.
     ///
+    /// Note: System names (`silica.*`) cannot be parsed with this method.
+    /// Use `parse_system()` for system account names.
+    ///
     /// # Examples
     ///
     /// ```
@@ -165,8 +168,8 @@ impl SilicaName {
     /// assert_eq!(name.full_name(), "alice");
     /// assert!(!name.is_system_reserved());
     ///
-    /// let system = SilicaName::parse("silica.reserve").unwrap();
-    /// assert!(system.is_system_reserved());
+    /// // System names must use parse_system (reserved prefix)
+    /// assert!(SilicaName::parse("silica.reserve").is_err());
     /// ```
     pub fn parse(name: &str) -> Result<Self, NameError> {
         Self::parse_with_config(name, &NameValidation::default())
@@ -211,8 +214,19 @@ impl SilicaName {
     }
 
     /// Parse a system name (allows reserved prefixes).
-    /// Used internally for genesis registration.
-    pub(crate) fn parse_system(name: &str) -> Result<Self, NameError> {
+    ///
+    /// Use this for `silica.*` system account names.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use silica_models::naming::SilicaName;
+    ///
+    /// let system = SilicaName::parse_system("silica.reserve").unwrap();
+    /// assert!(system.is_system_reserved());
+    /// assert_eq!(system.root_label(), "silica");
+    /// ```
+    pub fn parse_system(name: &str) -> Result<Self, NameError> {
         let name = name.to_lowercase();
         let config = NameValidation::default();
 
