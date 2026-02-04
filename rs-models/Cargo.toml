@@ -16,6 +16,7 @@ chrono = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 
 # Utilities
 hex = { workspace = true }
@@ -33,6 +34,12 @@ secrecy = { workspace = true }
 
 # Post-quantum crypto
 ed25519-dalek = { workspace = true }
+
+# ML-DSA (FIPS 204) - Primary post-quantum signature algorithm
+ml-dsa = { workspace = true }
+hybrid-array = { workspace = true }
+
+# Legacy: keeping for backward compatibility during migration
 pqcrypto-dilithium = { workspace = true }
 pqcrypto-kyber = { workspace = true }
 pqcrypto-traits = { workspace = true }
