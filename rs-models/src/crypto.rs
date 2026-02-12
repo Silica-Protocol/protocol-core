@@ -4,12 +4,6 @@
 /// consistency across all Chert components while allowing module-specific
 /// extensions for specialized use cases.
 use anyhow::Result;
-use pqcrypto_kyber::kyber768;
-use pqcrypto_kyber::kyber768::{
-    Ciphertext as KyberCipherValue, PublicKey as KyberPublicKeyValue,
-    SecretKey as KyberSecretKeyValue, SharedSecret as KyberSharedSecretValue,
-};
-use pqcrypto_traits::kem::{Ciphertext, PublicKey, SecretKey, SharedSecret};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -65,16 +59,10 @@ pub enum SignatureAlgorithm {
     /// ML-DSA-87 (Dilithium5 equivalent) - 256-bit post-quantum security
     /// Maximum security, reserved for future use
     MlDsa87,
-    /// Kyber768 - Key encapsulation mechanism (not for signing)
-    Kyber768,
-    
     // Legacy aliases for backward compatibility
     /// Legacy alias for MlDsa44 - DEPRECATED, use MlDsa44 instead
     #[serde(alias = "Dilithium2")]
     Dilithium2,
-    /// Legacy alias for Kyber768 - DEPRECATED, use Kyber768 instead  
-    #[serde(alias = "Kyber512")]
-    Kyber512,
 }
 
 impl SignatureAlgorithm {
@@ -100,7 +88,6 @@ impl SignatureAlgorithm {
             Self::MlDsa44 | Self::Dilithium2 => 1312,
             Self::MlDsa65 => 1952,
             Self::MlDsa87 => 2592,
-            Self::Kyber768 | Self::Kyber512 => 1184, // Kyber768 public key
         }
     }
     
@@ -111,7 +98,6 @@ impl SignatureAlgorithm {
             Self::MlDsa44 | Self::Dilithium2 => 2420,
             Self::MlDsa65 => 3309,    // Actual ml-dsa crate size
             Self::MlDsa87 => 4627,    // Actual ml-dsa crate size
-            Self::Kyber768 | Self::Kyber512 => 0, // Not a signing algorithm
         }
     }
     
@@ -120,7 +106,6 @@ impl SignatureAlgorithm {
         match self {
             Self::Ed25519 => 32,
             Self::MlDsa44 | Self::MlDsa65 | Self::MlDsa87 | Self::Dilithium2 => 32,
-            Self::Kyber768 | Self::Kyber512 => 0, // No seed-based keygen
         }
     }
     
@@ -128,7 +113,6 @@ impl SignatureAlgorithm {
     pub fn normalize(&self) -> Self {
         match self {
             Self::Dilithium2 => Self::MlDsa44,
-            Self::Kyber512 => Self::Kyber768,
             other => *other,
         }
     }
@@ -237,199 +221,11 @@ pub struct ChertKeyPair {
     pub private_key: Vec<u8>, // Will be zeroized on drop
 }
 
-/// Kyber KEM ciphertext wrapper enforcing length invariants
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct KyberCiphertext {
-    ciphertext: Vec<u8>,
-}
-
-impl KyberCiphertext {
-    pub fn from_bytes(bytes: Vec<u8>) -> Result<Self> {
-        if bytes.len() != kyber768::ciphertext_bytes() {
-            return Err(anyhow::anyhow!(
-                "Invalid Kyber ciphertext length: expected {} bytes, got {}",
-                kyber768::ciphertext_bytes(),
-                bytes.len()
-            ));
-        }
-
-        Ok(Self { ciphertext: bytes })
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.ciphertext
-    }
-
-    pub fn len(&self) -> usize {
-        self.ciphertext.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.ciphertext.is_empty()
-    }
-
-    pub fn into_vec(self) -> Vec<u8> {
-        self.ciphertext
-    }
-}
-
-/// Kyber shared secret container that zeroizes on drop
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ZeroizeOnDrop)]
-pub struct KyberSharedSecret {
-    #[serde(with = "hex_bytes")]
-    secret: Vec<u8>,
-}
-
-impl KyberSharedSecret {
-    pub fn from_bytes(bytes: Vec<u8>) -> Result<Self> {
-        if bytes.len() != kyber768::shared_secret_bytes() {
-            return Err(anyhow::anyhow!(
-                "Invalid Kyber shared secret length: expected {} bytes, got {}",
-                kyber768::shared_secret_bytes(),
-                bytes.len()
-            ));
-        }
-
-        Ok(Self { secret: bytes })
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.secret
-    }
-
-    pub fn len(&self) -> usize {
-        self.secret.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.secret.is_empty()
-    }
-}
-
-/// Kyber key encapsulation mechanism keypair
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ZeroizeOnDrop)]
-pub struct KyberKeyPair {
-    #[zeroize(skip)]
-    #[serde(with = "hex_bytes")]
-    public_key: Vec<u8>,
-    #[serde(with = "hex_bytes")]
-    private_key: Vec<u8>,
-}
-
-impl KyberKeyPair {
-    pub fn generate() -> Result<Self> {
-        let (public_key, secret_key) = kyber768::keypair();
-
-        Ok(Self {
-            public_key: public_key.as_bytes().to_vec(),
-            private_key: secret_key.as_bytes().to_vec(),
-        })
-    }
-
-    pub fn public_key(&self) -> &[u8] {
-        &self.public_key
-    }
-
-    pub fn private_key_len(&self) -> usize {
-        self.private_key.len()
-    }
-
-    pub fn encapsulate(peer_public_key: &[u8]) -> Result<(KyberCiphertext, KyberSharedSecret)> {
-        if peer_public_key.is_empty() {
-            return Err(anyhow::anyhow!("Peer public key cannot be empty"));
-        }
-
-        let public_key = KyberPublicKeyValue::from_bytes(peer_public_key).map_err(|err| {
-            anyhow::anyhow!(
-                "Invalid Kyber public key provided for encapsulation: {:?}",
-                err
-            )
-        })?;
-
-        let (shared_secret, ciphertext): (KyberSharedSecretValue, KyberCipherValue) =
-            kyber768::encapsulate(&public_key);
-        let ciphertext_bytes = ciphertext.as_bytes().to_vec();
-        let shared_bytes = shared_secret.as_bytes().to_vec();
-
-        let ciphertext = KyberCiphertext::from_bytes(ciphertext_bytes)?;
-        let secret = KyberSharedSecret::from_bytes(shared_bytes)?;
-
-        Ok((ciphertext, secret))
-    }
-
-    pub fn decapsulate(&self, ciphertext: &KyberCiphertext) -> Result<KyberSharedSecret> {
-        if ciphertext.len() != kyber768::ciphertext_bytes() {
-            return Err(anyhow::anyhow!(
-                "Ciphertext length mismatch: expected {} bytes, got {}",
-                kyber768::ciphertext_bytes(),
-                ciphertext.len()
-            ));
-        }
-
-        let secret_key = KyberSecretKeyValue::from_bytes(&self.private_key)
-            .map_err(|err| anyhow::anyhow!("Invalid Kyber private key: {:?}", err))?;
-        let ciphertext_value = KyberCipherValue::from_bytes(ciphertext.as_bytes())
-            .map_err(|err| anyhow::anyhow!("Invalid Kyber ciphertext: {:?}", err))?;
-
-        let shared_secret: KyberSharedSecretValue =
-            kyber768::decapsulate(&ciphertext_value, &secret_key);
-        let shared_bytes = shared_secret.as_bytes().to_vec();
-
-        KyberSharedSecret::from_bytes(shared_bytes)
-    }
-}
-
-/// Custom serialization for sensitive data
-mod sensitive_bytes {
-    use serde::{Deserializer, Serializer, de::SeqAccess};
-
-    pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_bytes(bytes)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct BytesVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for BytesVisitor {
-            type Value = Vec<u8>;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a byte array")
-            }
-
-            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(v.to_vec())
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: SeqAccess<'de>,
-            {
-                let mut bytes = Vec::new();
-                while let Some(byte) = seq.next_element()? {
-                    bytes.push(byte);
-                }
-                Ok(bytes)
-            }
-        }
-
-        deserializer.deserialize_bytes(BytesVisitor)
-    }
-}
 
 /// Hex encoding for binary data in JSON (much more compact than byte arrays)
 /// Compatible with both human-readable (JSON) and binary (postcard) formats
 mod hex_bytes {
-    use serde::{Deserialize, Deserializer, Serializer, de::SeqAccess};
+    use serde::{Deserializer, Serializer, de::SeqAccess};
 
     pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -749,9 +545,6 @@ impl ChertKeyPair {
             }
             SignatureAlgorithm::MlDsa65 => self.sign_ml_dsa_65(data),
             SignatureAlgorithm::MlDsa87 => self.sign_ml_dsa_87(data),
-            SignatureAlgorithm::Kyber768 | SignatureAlgorithm::Kyber512 => {
-                Err(anyhow::anyhow!("Kyber is for encryption, not signing"))
-            }
         }
     }
 
@@ -778,9 +571,6 @@ impl ChertKeyPair {
             }
             SignatureAlgorithm::MlDsa65 => self.verify_ml_dsa_65(data, signature),
             SignatureAlgorithm::MlDsa87 => self.verify_ml_dsa_87(data, signature),
-            SignatureAlgorithm::Kyber768 | SignatureAlgorithm::Kyber512 => {
-                Err(anyhow::anyhow!("Kyber is for encryption, not verification"))
-            }
         }
     }
 
@@ -1105,9 +895,6 @@ pub fn verify_signature_standalone(data: &[u8], signature: &ChertSignature) -> R
         SignatureAlgorithm::MlDsa87 => {
             verify_ml_dsa_87_standalone(data, signature)
         }
-        SignatureAlgorithm::Kyber768 | SignatureAlgorithm::Kyber512 => Err(anyhow::anyhow!(
-            "Kyber is for encryption, not verification"
-        )),
     }
 }
 

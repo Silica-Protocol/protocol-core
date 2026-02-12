@@ -39,11 +39,6 @@ ed25519-dalek = { workspace = true }
 ml-dsa = { workspace = true }
 hybrid-array = { workspace = true }
 
-# Legacy: keeping for backward compatibility during migration
-pqcrypto-dilithium = { workspace = true }
-pqcrypto-kyber = { workspace = true }
-pqcrypto-traits = { workspace = true }
-
 # Mnemonic derivation (SIP-1)
 ml-dsa-bip39 = { workspace = true }
 bip39 = { workspace = true }
