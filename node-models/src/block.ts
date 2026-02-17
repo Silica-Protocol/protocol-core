@@ -17,4 +17,5 @@ export interface Block {
 
 export interface GetBlocksResult {
   readonly blocks: readonly Block[];
+  readonly next_cursor?: number;
 }
