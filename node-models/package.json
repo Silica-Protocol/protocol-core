@@ -1,6 +1,6 @@
 {
   "name": "@silica-protocol/node-models",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "TypeScript models for the Silica node JSON-RPC and REST endpoints.",
   "license": "Apache-2.0",
   "private": false,

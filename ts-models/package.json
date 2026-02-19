@@ -1,6 +1,6 @@
 {
   "name": "@silica-protocol/explorer-models",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shared TypeScript domain models for Silica explorer frontends",
   "license": "Apache-2.0",
   "sideEffects": false,
