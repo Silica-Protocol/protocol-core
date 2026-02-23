@@ -9,17 +9,15 @@ use std::path::Path;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 // ML-DSA (FIPS 204) imports
-use ml_dsa::{MlDsa44, MlDsa65, MlDsa87, KeyGen};
-use ml_dsa::VerifyingKey as MlDsaVerifyingKey;
 use ml_dsa::Signature as MlDsaSignature;
-use ml_dsa::signature::{Signer as MlDsaSigner, Verifier as MlDsaVerifier, SignatureEncoding};
+use ml_dsa::VerifyingKey as MlDsaVerifyingKey;
+use ml_dsa::signature::{SignatureEncoding, Signer as MlDsaSigner, Verifier as MlDsaVerifier};
+use ml_dsa::{KeyGen, MlDsa44, MlDsa65, MlDsa87};
 
 // Mnemonic derivation (SIP-1) - re-export for consumers
 pub use ml_dsa_bip39::{
+    SILICA_COIN_TYPE, derive_keypair as derive_ml_dsa_keypair, derive_keypair_with_coin,
     mnemonic_to_seed,
-    derive_keypair as derive_ml_dsa_keypair,
-    derive_keypair_with_coin,
-    SILICA_COIN_TYPE,
 };
 // Use alias to avoid conflict with local MlDsaLevel
 use ml_dsa_bip39::MlDsaLevel as Sip1Level;
@@ -41,7 +39,7 @@ pub enum HashAlgorithm {
 }
 
 /// Standard signature algorithms with migration path
-/// 
+///
 /// ML-DSA levels (FIPS 204):
 /// - MlDsa44: 128-bit security (NIST Category 2) - Default for users
 /// - MlDsa65: 192-bit security (NIST Category 3) - For high-value accounts
@@ -68,9 +66,12 @@ pub enum SignatureAlgorithm {
 impl SignatureAlgorithm {
     /// Check if this is a post-quantum algorithm
     pub fn is_post_quantum(&self) -> bool {
-        matches!(self, Self::MlDsa44 | Self::MlDsa65 | Self::MlDsa87 | Self::Dilithium2)
+        matches!(
+            self,
+            Self::MlDsa44 | Self::MlDsa65 | Self::MlDsa87 | Self::Dilithium2
+        )
     }
-    
+
     /// Get the ML-DSA level if applicable
     pub fn ml_dsa_level(&self) -> Option<MlDsaLevel> {
         match self {
@@ -80,7 +81,7 @@ impl SignatureAlgorithm {
             _ => None,
         }
     }
-    
+
     /// Get public key size in bytes
     pub fn public_key_size(&self) -> usize {
         match self {
@@ -90,17 +91,17 @@ impl SignatureAlgorithm {
             Self::MlDsa87 => 2592,
         }
     }
-    
+
     /// Get signature size in bytes
     pub fn signature_size(&self) -> usize {
         match self {
             Self::Ed25519 => 64,
             Self::MlDsa44 | Self::Dilithium2 => 2420,
-            Self::MlDsa65 => 3309,    // Actual ml-dsa crate size
-            Self::MlDsa87 => 4627,    // Actual ml-dsa crate size
+            Self::MlDsa65 => 3309, // Actual ml-dsa crate size
+            Self::MlDsa87 => 4627, // Actual ml-dsa crate size
         }
     }
-    
+
     /// Get seed size in bytes (for deterministic key generation)
     pub fn seed_size(&self) -> usize {
         match self {
@@ -108,7 +109,7 @@ impl SignatureAlgorithm {
             Self::MlDsa44 | Self::MlDsa65 | Self::MlDsa87 | Self::Dilithium2 => 32,
         }
     }
-    
+
     /// Normalize legacy aliases to canonical form
     pub fn normalize(&self) -> Self {
         match self {
@@ -119,7 +120,7 @@ impl SignatureAlgorithm {
 }
 
 /// ML-DSA security level configuration
-/// 
+///
 /// All levels use 32-byte seeds for deterministic key generation.
 /// Choose based on security requirements vs performance/size trade-offs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -137,7 +138,7 @@ pub enum MlDsaLevel {
 
 impl Default for MlDsaLevel {
     fn default() -> Self {
-        Self::Dsa44  // Start with 128-bit, upgrade later if needed
+        Self::Dsa44 // Start with 128-bit, upgrade later if needed
     }
 }
 
@@ -150,16 +151,16 @@ impl MlDsaLevel {
             Self::Dsa87 => b"SIP-1:SILICA:ML-DSA-87:V1",
         }
     }
-    
+
     /// Purpose field in SIP-1 derivation path (unique per level)
     pub fn derivation_purpose(&self) -> u32 {
         match self {
-            Self::Dsa44 => 8844,  // m/8844'/...
-            Self::Dsa65 => 8865,  // m/8865'/...
-            Self::Dsa87 => 8887,  // m/8887'/...
+            Self::Dsa44 => 8844, // m/8844'/...
+            Self::Dsa65 => 8865, // m/8865'/...
+            Self::Dsa87 => 8887, // m/8887'/...
         }
     }
-    
+
     /// Get corresponding SignatureAlgorithm
     pub fn signature_algorithm(&self) -> SignatureAlgorithm {
         match self {
@@ -168,7 +169,7 @@ impl MlDsaLevel {
             Self::Dsa87 => SignatureAlgorithm::MlDsa87,
         }
     }
-    
+
     /// Public key size in bytes
     pub fn public_key_size(&self) -> usize {
         match self {
@@ -177,13 +178,13 @@ impl MlDsaLevel {
             Self::Dsa87 => 2592,
         }
     }
-    
+
     /// Signature size in bytes
     pub fn signature_size(&self) -> usize {
         match self {
             Self::Dsa44 => 2420,
-            Self::Dsa65 => 3309,  // Actual ml-dsa crate size
-            Self::Dsa87 => 4627,  // Actual ml-dsa crate size
+            Self::Dsa65 => 3309, // Actual ml-dsa crate size
+            Self::Dsa87 => 4627, // Actual ml-dsa crate size
         }
     }
 }
@@ -220,7 +221,6 @@ pub struct ChertKeyPair {
     #[serde(with = "hex_bytes")]
     pub private_key: Vec<u8>, // Will be zeroized on drop
 }
-
 
 /// Hex encoding for binary data in JSON (much more compact than byte arrays)
 /// Compatible with both human-readable (JSON) and binary (postcard) formats
@@ -406,29 +406,29 @@ impl ChertKeyPair {
     }
 
     /// Generate a new ML-DSA keypair at default level (MlDsa44)
-    /// 
+    ///
     /// This is the recommended method for post-quantum key generation.
     /// Uses random entropy from OsRng via seed-based generation.
     pub fn generate_ml_dsa() -> Result<Self> {
         Self::generate_ml_dsa_at_level(MlDsaLevel::default())
     }
-    
+
     /// Generate a new ML-DSA keypair at specified security level
-    /// 
+    ///
     /// Uses random seed generation to avoid rand_core version conflicts.
     pub fn generate_ml_dsa_at_level(level: MlDsaLevel) -> Result<Self> {
         use rand::{RngCore, rngs::OsRng};
-        
+
         // Generate random seed (works with rand 0.8)
         let mut seed = [0u8; 32];
         OsRng.fill_bytes(&mut seed);
-        
+
         // Use seed-based generation (deterministic from random seed)
         Self::generate_ml_dsa_from_seed(&seed, level)
     }
-    
+
     /// Generate ML-DSA keypair from 32-byte seed (deterministic)
-    /// 
+    ///
     /// This is the core function for SIP-1 mnemonic derivation.
     /// Same seed always produces same keypair.
     pub fn generate_ml_dsa_from_seed(seed: &[u8; 32], level: MlDsaLevel) -> Result<Self> {
@@ -461,7 +461,7 @@ impl ChertKeyPair {
     }
 
     /// Generate a new Dilithium2 keypair (post-quantum)
-    /// 
+    ///
     /// DEPRECATED: Use `generate_ml_dsa()` instead.
     /// This method is kept for backward compatibility.
     #[deprecated(since = "0.2.0", note = "Use generate_ml_dsa() instead")]
@@ -471,18 +471,18 @@ impl ChertKeyPair {
     }
 
     /// Derive an ML-DSA keypair from a BIP39 mnemonic (SIP-1 standard)
-    /// 
+    ///
     /// This enables 24-word seed phrase backup for post-quantum accounts.
     /// The derivation is fully deterministic - same mnemonic always produces
     /// the same keypair.
-    /// 
+    ///
     /// # Arguments
     /// * `mnemonic` - 12 or 24 word BIP39 phrase
     /// * `passphrase` - Optional passphrase (use "" for none)
     /// * `account` - Account index (usually 0)
     /// * `index` - Key index within the account
     /// * `level` - ML-DSA security level
-    /// 
+    ///
     /// # Example
     /// ```ignore
     /// let mnemonic = "abandon abandon abandon abandon abandon abandon \
@@ -500,32 +500,32 @@ impl ChertKeyPair {
     ) -> Result<Self> {
         let seed = ml_dsa_bip39::mnemonic_to_seed(mnemonic, passphrase)
             .map_err(|e| anyhow::anyhow!("Invalid mnemonic: {}", e))?;
-        
+
         // Convert local MlDsaLevel to ml-dsa-bip39's level type
         let sip1_level = match level {
             MlDsaLevel::Dsa44 => Sip1Level::Dsa44,
             MlDsaLevel::Dsa65 => Sip1Level::Dsa65,
             MlDsaLevel::Dsa87 => Sip1Level::Dsa87,
         };
-        
+
         let sip1_keypair = ml_dsa_bip39::derive_keypair(&seed, account, index, sip1_level)
             .map_err(|e| anyhow::anyhow!("Key derivation failed: {}", e))?;
-        
+
         let algorithm = match level {
             MlDsaLevel::Dsa44 => SignatureAlgorithm::MlDsa44,
             MlDsaLevel::Dsa65 => SignatureAlgorithm::MlDsa65,
             MlDsaLevel::Dsa87 => SignatureAlgorithm::MlDsa87,
         };
-        
+
         Ok(Self {
             algorithm,
             public_key: sip1_keypair.public_key().to_vec(),
             private_key: sip1_keypair.seed().to_vec(),
         })
     }
-    
+
     /// Derive ML-DSA-44 keypair from mnemonic with defaults
-    /// 
+    ///
     /// Convenience method using default security level (ML-DSA-44).
     pub fn derive_from_mnemonic_default(
         mnemonic: &str,
@@ -553,7 +553,7 @@ impl ChertKeyPair {
         // Normalize both algorithms for comparison
         let self_alg = self.algorithm.normalize();
         let sig_alg = signature.algorithm.normalize();
-        
+
         // Ensure the signature algorithm matches this keypair
         if sig_alg != self_alg {
             return Ok(false);
@@ -628,13 +628,16 @@ impl ChertKeyPair {
                 self.private_key.len()
             ));
         }
-        
-        let seed: [u8; 32] = self.private_key.clone().try_into()
+
+        let seed: [u8; 32] = self
+            .private_key
+            .clone()
+            .try_into()
             .map_err(|_| anyhow::anyhow!("Invalid ML-DSA seed length"))?;
-        
+
         let kp = MlDsa44::from_seed(&seed.into());
         let signature = kp.signing_key().sign(data);
-        
+
         Ok(ChertSignature {
             algorithm: SignatureAlgorithm::MlDsa44,
             signature: signature.to_bytes().to_vec(),
@@ -650,13 +653,16 @@ impl ChertKeyPair {
                 self.private_key.len()
             ));
         }
-        
-        let seed: [u8; 32] = self.private_key.clone().try_into()
+
+        let seed: [u8; 32] = self
+            .private_key
+            .clone()
+            .try_into()
             .map_err(|_| anyhow::anyhow!("Invalid ML-DSA seed length"))?;
-        
+
         let kp = MlDsa65::from_seed(&seed.into());
         let signature = kp.signing_key().sign(data);
-        
+
         Ok(ChertSignature {
             algorithm: SignatureAlgorithm::MlDsa65,
             signature: signature.to_bytes().to_vec(),
@@ -672,13 +678,16 @@ impl ChertKeyPair {
                 self.private_key.len()
             ));
         }
-        
-        let seed: [u8; 32] = self.private_key.clone().try_into()
+
+        let seed: [u8; 32] = self
+            .private_key
+            .clone()
+            .try_into()
             .map_err(|_| anyhow::anyhow!("Invalid ML-DSA seed length"))?;
-        
+
         let kp = MlDsa87::from_seed(&seed.into());
         let signature = kp.signing_key().sign(data);
-        
+
         Ok(ChertSignature {
             algorithm: SignatureAlgorithm::MlDsa87,
             signature: signature.to_bytes().to_vec(),
@@ -725,16 +734,19 @@ impl ChertKeyPair {
         if signature.signature.len() != 2420 {
             return Ok(false);
         }
-        
+
         // Decode public key using decode()
-        let pk_array: [u8; 1312] = self.public_key.clone().try_into()
+        let pk_array: [u8; 1312] = self
+            .public_key
+            .clone()
+            .try_into()
             .map_err(|_| anyhow::anyhow!("Invalid ML-DSA-44 public key length"))?;
         let vk = MlDsaVerifyingKey::<MlDsa44>::decode(&pk_array.into());
-        
+
         // Decode signature
         let sig = MlDsaSignature::<MlDsa44>::try_from(signature.signature.as_slice())
             .map_err(|_| anyhow::anyhow!("Invalid ML-DSA-44 signature"))?;
-        
+
         // Verify
         match vk.verify(data, &sig) {
             Ok(()) => Ok(true),
@@ -751,16 +763,19 @@ impl ChertKeyPair {
         if signature.signature.len() != 3309 {
             return Ok(false);
         }
-        
+
         // Decode public key
-        let pk_array: [u8; 1952] = self.public_key.clone().try_into()
+        let pk_array: [u8; 1952] = self
+            .public_key
+            .clone()
+            .try_into()
             .map_err(|_| anyhow::anyhow!("Invalid ML-DSA-65 public key length"))?;
         let vk = MlDsaVerifyingKey::<MlDsa65>::decode(&pk_array.into());
-        
+
         // Decode signature
         let sig = MlDsaSignature::<MlDsa65>::try_from(signature.signature.as_slice())
             .map_err(|_| anyhow::anyhow!("Invalid ML-DSA-65 signature"))?;
-        
+
         // Verify
         match vk.verify(data, &sig) {
             Ok(()) => Ok(true),
@@ -777,16 +792,19 @@ impl ChertKeyPair {
         if signature.signature.len() != 4627 {
             return Ok(false);
         }
-        
+
         // Decode public key
-        let pk_array: [u8; 2592] = self.public_key.clone().try_into()
+        let pk_array: [u8; 2592] = self
+            .public_key
+            .clone()
+            .try_into()
             .map_err(|_| anyhow::anyhow!("Invalid ML-DSA-87 public key length"))?;
         let vk = MlDsaVerifyingKey::<MlDsa87>::decode(&pk_array.into());
-        
+
         // Decode signature
         let sig = MlDsaSignature::<MlDsa87>::try_from(signature.signature.as_slice())
             .map_err(|_| anyhow::anyhow!("Invalid ML-DSA-87 signature"))?;
-        
+
         // Verify
         match vk.verify(data, &sig) {
             Ok(()) => Ok(true),
@@ -889,12 +907,8 @@ pub fn verify_signature_standalone(data: &[u8], signature: &ChertSignature) -> R
         SignatureAlgorithm::MlDsa44 | SignatureAlgorithm::Dilithium2 => {
             verify_ml_dsa_44_standalone(data, signature)
         }
-        SignatureAlgorithm::MlDsa65 => {
-            verify_ml_dsa_65_standalone(data, signature)
-        }
-        SignatureAlgorithm::MlDsa87 => {
-            verify_ml_dsa_87_standalone(data, signature)
-        }
+        SignatureAlgorithm::MlDsa65 => verify_ml_dsa_65_standalone(data, signature),
+        SignatureAlgorithm::MlDsa87 => verify_ml_dsa_87_standalone(data, signature),
     }
 }
 
@@ -903,14 +917,17 @@ fn verify_ml_dsa_44_standalone(data: &[u8], signature: &ChertSignature) -> Resul
     if signature.public_key.len() != 1312 || signature.signature.len() != 2420 {
         return Ok(false);
     }
-    
-    let pk_array: [u8; 1312] = signature.public_key.clone().try_into()
+
+    let pk_array: [u8; 1312] = signature
+        .public_key
+        .clone()
+        .try_into()
         .map_err(|_| anyhow::anyhow!("Invalid ML-DSA-44 public key length"))?;
     let vk = MlDsaVerifyingKey::<MlDsa44>::decode(&pk_array.into());
-    
+
     let sig = MlDsaSignature::<MlDsa44>::try_from(signature.signature.as_slice())
         .map_err(|_| anyhow::anyhow!("Invalid ML-DSA-44 signature"))?;
-    
+
     match vk.verify(data, &sig) {
         Ok(()) => Ok(true),
         Err(_) => Ok(false),
@@ -922,14 +939,17 @@ fn verify_ml_dsa_65_standalone(data: &[u8], signature: &ChertSignature) -> Resul
     if signature.public_key.len() != 1952 || signature.signature.len() != 3309 {
         return Ok(false);
     }
-    
-    let pk_array: [u8; 1952] = signature.public_key.clone().try_into()
+
+    let pk_array: [u8; 1952] = signature
+        .public_key
+        .clone()
+        .try_into()
         .map_err(|_| anyhow::anyhow!("Invalid ML-DSA-65 public key length"))?;
     let vk = MlDsaVerifyingKey::<MlDsa65>::decode(&pk_array.into());
-    
+
     let sig = MlDsaSignature::<MlDsa65>::try_from(signature.signature.as_slice())
         .map_err(|_| anyhow::anyhow!("Invalid ML-DSA-65 signature"))?;
-    
+
     match vk.verify(data, &sig) {
         Ok(()) => Ok(true),
         Err(_) => Ok(false),
@@ -941,14 +961,17 @@ fn verify_ml_dsa_87_standalone(data: &[u8], signature: &ChertSignature) -> Resul
     if signature.public_key.len() != 2592 || signature.signature.len() != 4627 {
         return Ok(false);
     }
-    
-    let pk_array: [u8; 2592] = signature.public_key.clone().try_into()
+
+    let pk_array: [u8; 2592] = signature
+        .public_key
+        .clone()
+        .try_into()
         .map_err(|_| anyhow::anyhow!("Invalid ML-DSA-87 public key length"))?;
     let vk = MlDsaVerifyingKey::<MlDsa87>::decode(&pk_array.into());
-    
+
     let sig = MlDsaSignature::<MlDsa87>::try_from(signature.signature.as_slice())
         .map_err(|_| anyhow::anyhow!("Invalid ML-DSA-87 signature"))?;
-    
+
     match vk.verify(data, &sig) {
         Ok(()) => Ok(true),
         Err(_) => Ok(false),
@@ -968,7 +991,7 @@ pub fn infer_signature_algorithm(
         2592 => return Ok(SignatureAlgorithm::MlDsa87),
         _ => {}
     }
-    
+
     // Fall back to signature length if provided
     if let Some(sig) = signature {
         match sig.len() {
@@ -979,8 +1002,10 @@ pub fn infer_signature_algorithm(
             _ => {}
         }
     }
-    
-    Err(anyhow::anyhow!("Cannot infer algorithm from key/signature lengths"))
+
+    Err(anyhow::anyhow!(
+        "Cannot infer algorithm from key/signature lengths"
+    ))
 }
 
 /// Standard hash domains used across the ecosystem
@@ -1129,137 +1154,152 @@ mod tests {
         assert_eq!(bytes2.len(), 32);
         assert_ne!(bytes1, bytes2); // Should be different
     }
-    
+
     // ===== ML-DSA Tests =====
-    
+
     #[test]
     fn test_ml_dsa_44_keygen_deterministic() {
         let seed = [42u8; 32];
-        
+
         let kp1 = ChertKeyPair::generate_ml_dsa_from_seed(&seed, MlDsaLevel::Dsa44).unwrap();
         let kp2 = ChertKeyPair::generate_ml_dsa_from_seed(&seed, MlDsaLevel::Dsa44).unwrap();
-        
+
         // Same seed should produce same keypair
         assert_eq!(kp1.public_key, kp2.public_key);
         assert_eq!(kp1.private_key, kp2.private_key);
         assert_eq!(kp1.algorithm, SignatureAlgorithm::MlDsa44);
-        
+
         // Verify expected sizes
-        assert_eq!(kp1.public_key.len(), 1312);  // ML-DSA-44 public key size
-        assert_eq!(kp1.private_key.len(), 32);   // Seed size (not expanded key)
+        assert_eq!(kp1.public_key.len(), 1312); // ML-DSA-44 public key size
+        assert_eq!(kp1.private_key.len(), 32); // Seed size (not expanded key)
     }
-    
+
     #[test]
     fn test_ml_dsa_44_sign_verify() {
         let seed = [99u8; 32];
         let kp = ChertKeyPair::generate_ml_dsa_from_seed(&seed, MlDsaLevel::Dsa44).unwrap();
-        
+
         let message = b"Hello, post-quantum world!";
         let signature = kp.sign(message).unwrap();
-        
+
         // Verify signature
         let verified = kp.verify(message, &signature).unwrap();
         assert!(verified);
-        
+
         // Verify signature size
-        assert_eq!(signature.signature.len(), 2420);  // ML-DSA-44 signature size
+        assert_eq!(signature.signature.len(), 2420); // ML-DSA-44 signature size
         assert_eq!(signature.algorithm, SignatureAlgorithm::MlDsa44);
     }
-    
+
     #[test]
     fn test_ml_dsa_44_standalone_verify() {
         let seed = [123u8; 32];
         let kp = ChertKeyPair::generate_ml_dsa_from_seed(&seed, MlDsaLevel::Dsa44).unwrap();
-        
+
         let message = b"Test standalone verification";
         let signature = kp.sign(message).unwrap();
-        
+
         // Verify using standalone function
         let verified = verify_signature_standalone(message, &signature).unwrap();
         assert!(verified);
-        
+
         // Tampered message should fail
         let tampered = b"Tampered message";
         let verified_tampered = verify_signature_standalone(tampered, &signature).unwrap();
         assert!(!verified_tampered);
     }
-    
+
     #[test]
     fn test_ml_dsa_65_keygen_and_sign() {
         let seed = [77u8; 32];
         let kp = ChertKeyPair::generate_ml_dsa_from_seed(&seed, MlDsaLevel::Dsa65).unwrap();
-        
+
         // Verify expected sizes
-        assert_eq!(kp.public_key.len(), 1952);  // ML-DSA-65 public key size
+        assert_eq!(kp.public_key.len(), 1952); // ML-DSA-65 public key size
         assert_eq!(kp.algorithm, SignatureAlgorithm::MlDsa65);
-        
+
         let message = b"High security message";
         let signature = kp.sign(message).unwrap();
-        
+
         // Verify signature
         assert!(kp.verify(message, &signature).unwrap());
-        assert_eq!(signature.signature.len(), 3309);  // ML-DSA-65 signature size
+        assert_eq!(signature.signature.len(), 3309); // ML-DSA-65 signature size
     }
-    
+
     #[test]
     fn test_ml_dsa_87_keygen_and_sign() {
         let seed = [88u8; 32];
         let kp = ChertKeyPair::generate_ml_dsa_from_seed(&seed, MlDsaLevel::Dsa87).unwrap();
-        
+
         // Verify expected sizes
-        assert_eq!(kp.public_key.len(), 2592);  // ML-DSA-87 public key size
+        assert_eq!(kp.public_key.len(), 2592); // ML-DSA-87 public key size
         assert_eq!(kp.algorithm, SignatureAlgorithm::MlDsa87);
-        
+
         let message = b"Maximum security message";
         let signature = kp.sign(message).unwrap();
-        
+
         // Verify signature
         assert!(kp.verify(message, &signature).unwrap());
-        assert_eq!(signature.signature.len(), 4627);  // ML-DSA-87 signature size
+        assert_eq!(signature.signature.len(), 4627); // ML-DSA-87 signature size
     }
-    
+
     #[test]
     fn test_ml_dsa_random_keygen() {
         // Test random key generation
         let kp1 = ChertKeyPair::generate_ml_dsa().unwrap();
         let kp2 = ChertKeyPair::generate_ml_dsa().unwrap();
-        
+
         // Random keys should be different
         assert_ne!(kp1.public_key, kp2.public_key);
-        
+
         // Both should work for signing
         let message = b"Test message";
         let sig1 = kp1.sign(message).unwrap();
         let sig2 = kp2.sign(message).unwrap();
-        
+
         assert!(kp1.verify(message, &sig1).unwrap());
         assert!(kp2.verify(message, &sig2).unwrap());
-        
+
         // Cross-verification should fail
         assert!(!kp1.verify(message, &sig2).unwrap());
         assert!(!kp2.verify(message, &sig1).unwrap());
     }
-    
+
     #[test]
     fn test_ml_dsa_level_defaults() {
         assert_eq!(MlDsaLevel::default(), MlDsaLevel::Dsa44);
-        
+
         let kp = ChertKeyPair::generate_ml_dsa().unwrap();
         assert_eq!(kp.algorithm, SignatureAlgorithm::MlDsa44);
     }
-    
+
     #[test]
     fn test_signature_algorithm_normalize() {
         // Dilithium2 should normalize to MlDsa44
-        assert_eq!(SignatureAlgorithm::Dilithium2.normalize(), SignatureAlgorithm::MlDsa44);
-        
+        assert_eq!(
+            SignatureAlgorithm::Dilithium2.normalize(),
+            SignatureAlgorithm::MlDsa44
+        );
+
         // Others should remain unchanged
-        assert_eq!(SignatureAlgorithm::Ed25519.normalize(), SignatureAlgorithm::Ed25519);
-        assert_eq!(SignatureAlgorithm::MlDsa44.normalize(), SignatureAlgorithm::MlDsa44);
-        assert_eq!(SignatureAlgorithm::MlDsa65.normalize(), SignatureAlgorithm::MlDsa65);
-        assert_eq!(SignatureAlgorithm::MlDsa87.normalize(), SignatureAlgorithm::MlDsa87);
+        assert_eq!(
+            SignatureAlgorithm::Ed25519.normalize(),
+            SignatureAlgorithm::Ed25519
+        );
+        assert_eq!(
+            SignatureAlgorithm::MlDsa44.normalize(),
+            SignatureAlgorithm::MlDsa44
+        );
+        assert_eq!(
+            SignatureAlgorithm::MlDsa65.normalize(),
+            SignatureAlgorithm::MlDsa65
+        );
+        assert_eq!(
+            SignatureAlgorithm::MlDsa87.normalize(),
+            SignatureAlgorithm::MlDsa87
+        );
     }
-    
+
     #[test]
     fn test_infer_signature_algorithm() {
         // Ed25519
@@ -1267,98 +1307,95 @@ mod tests {
             infer_signature_algorithm(&[0u8; 32], None).unwrap(),
             SignatureAlgorithm::Ed25519
         );
-        
+
         // ML-DSA-44
         assert_eq!(
             infer_signature_algorithm(&[0u8; 1312], None).unwrap(),
             SignatureAlgorithm::MlDsa44
         );
-        
+
         // ML-DSA-65
         assert_eq!(
             infer_signature_algorithm(&[0u8; 1952], None).unwrap(),
             SignatureAlgorithm::MlDsa65
         );
-        
+
         // ML-DSA-87
         assert_eq!(
             infer_signature_algorithm(&[0u8; 2592], None).unwrap(),
             SignatureAlgorithm::MlDsa87
         );
-        
+
         // Unknown should error
         assert!(infer_signature_algorithm(&[0u8; 100], None).is_err());
     }
-    
+
     #[test]
     fn test_ml_dsa_address_derivation() {
         let seed = [42u8; 32];
         let kp = ChertKeyPair::generate_ml_dsa_from_seed(&seed, MlDsaLevel::Dsa44).unwrap();
-        
+
         let address = kp.address("USER");
-        
+
         // Address should be deterministic
         let kp2 = ChertKeyPair::generate_ml_dsa_from_seed(&seed, MlDsaLevel::Dsa44).unwrap();
         let address2 = kp2.address("USER");
-        
+
         assert_eq!(address, address2);
-        
+
         // Address format should be 0x + 40 hex chars
         assert!(address.starts_with("0x"));
         assert_eq!(address.len(), 42);
     }
-    
+
     #[test]
     fn test_derive_from_mnemonic() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon \
                         abandon abandon abandon abandon abandon about";
-        
+
         // Derive keypair using SIP-1 standard
-        let kp = ChertKeyPair::derive_from_mnemonic(
-            mnemonic, "", 0, 0, MlDsaLevel::default()
-        ).unwrap();
-        
+        let kp =
+            ChertKeyPair::derive_from_mnemonic(mnemonic, "", 0, 0, MlDsaLevel::default()).unwrap();
+
         // Should be ML-DSA-44 (default level)
         assert_eq!(kp.algorithm, SignatureAlgorithm::MlDsa44);
         assert_eq!(kp.public_key.len(), 1312);
         assert_eq!(kp.private_key.len(), 32); // 32-byte seed
-        
+
         // Should be deterministic
-        let kp2 = ChertKeyPair::derive_from_mnemonic(
-            mnemonic, "", 0, 0, MlDsaLevel::Dsa44
-        ).unwrap();
-        
+        let kp2 =
+            ChertKeyPair::derive_from_mnemonic(mnemonic, "", 0, 0, MlDsaLevel::Dsa44).unwrap();
+
         assert_eq!(kp.public_key, kp2.public_key);
         assert_eq!(kp.private_key, kp2.private_key);
-        
+
         // Different index = different keys
-        let kp3 = ChertKeyPair::derive_from_mnemonic(
-            mnemonic, "", 0, 1, MlDsaLevel::Dsa44
-        ).unwrap();
-        
+        let kp3 =
+            ChertKeyPair::derive_from_mnemonic(mnemonic, "", 0, 1, MlDsaLevel::Dsa44).unwrap();
+
         assert_ne!(kp.public_key, kp3.public_key);
-        
+
         // Passphrase changes everything
-        let kp_pass = ChertKeyPair::derive_from_mnemonic(
-            mnemonic, "secret", 0, 0, MlDsaLevel::Dsa44
-        ).unwrap();
-        
+        let kp_pass =
+            ChertKeyPair::derive_from_mnemonic(mnemonic, "secret", 0, 0, MlDsaLevel::Dsa44)
+                .unwrap();
+
         assert_ne!(kp.public_key, kp_pass.public_key);
     }
-    
+
     #[test]
     fn test_derive_from_mnemonic_sign_verify() {
         let mnemonic = "abandon abandon abandon abandon abandon abandon \
                         abandon abandon abandon abandon abandon about";
-        
+
         let kp = ChertKeyPair::derive_from_mnemonic_default(mnemonic, "", 0, 0).unwrap();
-        
+
         let message = b"Hello post-quantum world!";
         let signature = kp.sign(message).unwrap();
-        
+
         // Verify with same keypair
         assert!(kp.verify(message, &signature).unwrap());
-        
+
         // Wrong message should fail
         assert!(!kp.verify(b"wrong message", &signature).unwrap());
     }

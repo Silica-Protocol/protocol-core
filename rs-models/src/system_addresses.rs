@@ -62,15 +62,15 @@ pub const KEYLESS_SYSTEM_ACCOUNTS: &[(&str, &str)] = &[
 
 /// Names of all keyed system accounts (addresses derived from genesis keypairs)
 pub const KEYED_SYSTEM_ACCOUNT_NAMES: &[&str] = &[
-    "silica.reserve",  // Treasury
-    "silica.geyser",   // Mining/staking rewards
-    "silica.council",  // Governance
-    "silica.well",     // Testnet faucet
-    "silica.forge",    // Developer fund
-    "silica.bedrock",  // Staking deposits
-    "silica.basalt",   // Insurance fund
-    "silica.prism",    // Oracle rewards
-    "silica.quarry",   // Community grants
+    "silica.reserve", // Treasury
+    "silica.geyser",  // Mining/staking rewards
+    "silica.council", // Governance
+    "silica.well",    // Testnet faucet
+    "silica.forge",   // Developer fund
+    "silica.bedrock", // Staking deposits
+    "silica.basalt",  // Insurance fund
+    "silica.prism",   // Oracle rewards
+    "silica.quarry",  // Community grants
 ];
 
 // ============================================================================
@@ -127,11 +127,11 @@ impl SystemAccountType {
     pub fn default_permissions(&self) -> SystemPermissions {
         match self {
             Self::Void => SystemPermissions::REJECT_ALL,
-            Self::Furnace => SystemPermissions::RECEIVE_ONLY
-                .union(SystemPermissions::BURN_ON_RECEIVE),
+            Self::Furnace => {
+                SystemPermissions::RECEIVE_ONLY.union(SystemPermissions::BURN_ON_RECEIVE)
+            }
             Self::Origin => SystemPermissions::MINT_SOURCE,
-            Self::Levy => SystemPermissions::RECEIVE_ONLY
-                .union(SystemPermissions::FEE_COLLECTION),
+            Self::Levy => SystemPermissions::RECEIVE_ONLY.union(SystemPermissions::FEE_COLLECTION),
             Self::Conduit => SystemPermissions::BRIDGE_OPERATIONS,
             Self::Registry => SystemPermissions::NAME_REGISTRY,
             Self::Reserved => SystemPermissions::UNINITIALIZED,
@@ -452,9 +452,9 @@ pub fn validate_recipient(recipient: &str) -> Result<(), SystemAddressError> {
 
     match account_type {
         SystemAccountType::Void => Err(SystemAddressError::VoidAddressNotAllowed),
-        SystemAccountType::Reserved => {
-            Err(SystemAddressError::ReservedAddressNotAllowed(recipient.to_string()))
-        }
+        SystemAccountType::Reserved => Err(SystemAddressError::ReservedAddressNotAllowed(
+            recipient.to_string(),
+        )),
         _ => Ok(()), // Other system accounts can receive
     }
 }

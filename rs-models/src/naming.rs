@@ -117,9 +117,7 @@ impl Default for NameValidation {
             max_total_length: 64,
             max_labels: 3,
             reserved_prefixes: vec!["silica", "system", "protocol", "_", "app"],
-            banned_names: vec![
-                "admin", "root", "null", "undefined", "void", "none", "test",
-            ],
+            banned_names: vec!["admin", "root", "null", "undefined", "void", "none", "test"],
         }
     }
 }
@@ -261,7 +259,11 @@ impl SilicaName {
     }
 
     /// Validate a single label.
-    fn validate_label(label: &str, position: usize, config: &NameValidation) -> Result<(), NameError> {
+    fn validate_label(
+        label: &str,
+        position: usize,
+        config: &NameValidation,
+    ) -> Result<(), NameError> {
         // Check empty
         if label.is_empty() {
             return Err(NameError::EmptyLabel(position));
@@ -445,7 +447,9 @@ impl NameRecord {
     /// Extend the registration by additional years.
     pub fn extend(&mut self, additional_years: u8) -> Result<(), NameError> {
         if self.permanent {
-            return Err(NameError::PermanentName("cannot extend permanent name".into()));
+            return Err(NameError::PermanentName(
+                "cannot extend permanent name".into(),
+            ));
         }
 
         let base = self.expires_at.unwrap_or_else(Utc::now);
@@ -459,7 +463,7 @@ impl NameRecord {
 // ============================================================================
 
 /// Serialization helper for BTreeMap<SilicaName, NameRecord>
-/// 
+///
 /// JSON requires string keys, so we serialize SilicaName as its full_name string.
 mod names_map_serde {
     use super::*;
@@ -535,9 +539,7 @@ mod reverse_map_serde {
         map_ser.end()
     }
 
-    pub fn deserialize<'de, D>(
-        deserializer: D,
-    ) -> Result<BTreeMap<String, SilicaName>, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<BTreeMap<String, SilicaName>, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
@@ -547,7 +549,8 @@ mod reverse_map_serde {
             type Value = BTreeMap<String, SilicaName>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a map with string keys and string values representing SilicaName")
+                formatter
+                    .write_str("a map with string keys and string values representing SilicaName")
             }
 
             fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
@@ -556,8 +559,9 @@ mod reverse_map_serde {
             {
                 let mut map = BTreeMap::new();
                 while let Some((key, value)) = access.next_entry::<String, String>()? {
-                    let name = SilicaName::parse_system(&value)
-                        .map_err(|_| serde::de::Error::custom(format!("invalid name: {}", value)))?;
+                    let name = SilicaName::parse_system(&value).map_err(|_| {
+                        serde::de::Error::custom(format!("invalid name: {}", value))
+                    })?;
                     map.insert(key, name);
                 }
                 Ok(map)
@@ -608,10 +612,8 @@ impl NameRegistry {
         for (name, address) in &genesis_accounts.keyed_accounts {
             if let Ok(parsed) = SilicaName::parse_system(name) {
                 // All keyed system names are owned by silica.reserve
-                let record = NameRecord::new_system(
-                    address.clone(),
-                    Some("silica.reserve".to_string()),
-                );
+                let record =
+                    NameRecord::new_system(address.clone(), Some("silica.reserve".to_string()));
                 registry.names.insert(parsed.clone(), record);
                 registry.reverse.insert(address.clone(), parsed);
             }
@@ -802,7 +804,12 @@ impl NameRegistry {
     }
 
     /// Set reverse resolution preference for an address.
-    pub fn set_reverse(&mut self, address: &str, name: SilicaName, caller: &str) -> Result<(), NameError> {
+    pub fn set_reverse(
+        &mut self,
+        address: &str,
+        name: SilicaName,
+        caller: &str,
+    ) -> Result<(), NameError> {
         // Verify caller owns the name
         let record = self
             .names
@@ -843,6 +850,35 @@ impl NameRegistry {
     pub fn is_empty(&self) -> bool {
         self.names.is_empty()
     }
+
+    /// Remove a name from the registry (for subdomain revocation).
+    ///
+    /// Only callable by the name's owner. Returns the removed record if successful.
+    pub fn remove_name(
+        &mut self,
+        name: &SilicaName,
+        caller: &str,
+    ) -> Result<NameRecord, NameError> {
+        let record = self
+            .names
+            .get(name)
+            .ok_or_else(|| NameError::NotFound(name.full_name().to_string()))?;
+
+        match &record.owner {
+            Some(owner) if owner != caller => {
+                return Err(NameError::NotOwner(name.full_name().to_string()));
+            }
+            None => {
+                return Err(NameError::PermanentName(name.full_name().to_string()));
+            }
+            _ => {}
+        }
+
+        let removed = self.names.remove(name).unwrap();
+        self.reverse.remove(&removed.address);
+
+        Ok(removed)
+    }
 }
 
 // ============================================================================
@@ -867,25 +903,43 @@ impl GenesisNameConfig {
         Self {
             // Keyless accounts (reserved address range 0x00-0xff)
             keyless_accounts: vec![
-                ("silica.void".into(), "0x0000000000000000000000000000000000000000".into()),
-                ("silica.furnace".into(), "0x0000000000000000000000000000000000000001".into()),
-                ("silica.origin".into(), "0x0000000000000000000000000000000000000002".into()),
-                ("silica.levy".into(), "0x0000000000000000000000000000000000000003".into()),
-                ("silica.conduit".into(), "0x0000000000000000000000000000000000000004".into()),
-                ("silica.registry".into(), "0x0000000000000000000000000000000000000005".into()),
+                (
+                    "silica.void".into(),
+                    "0x0000000000000000000000000000000000000000".into(),
+                ),
+                (
+                    "silica.furnace".into(),
+                    "0x0000000000000000000000000000000000000001".into(),
+                ),
+                (
+                    "silica.origin".into(),
+                    "0x0000000000000000000000000000000000000002".into(),
+                ),
+                (
+                    "silica.levy".into(),
+                    "0x0000000000000000000000000000000000000003".into(),
+                ),
+                (
+                    "silica.conduit".into(),
+                    "0x0000000000000000000000000000000000000004".into(),
+                ),
+                (
+                    "silica.registry".into(),
+                    "0x0000000000000000000000000000000000000005".into(),
+                ),
             ],
             // Keyed accounts (addresses will be set from genesis keypairs)
             // These are placeholders - actual addresses derived from Dilithium2 public keys
             keyed_accounts: vec![
-                ("silica.reserve".into(), "".into()),   // Treasury
-                ("silica.geyser".into(), "".into()),    // Mining/staking rewards
-                ("silica.council".into(), "".into()),   // Governance
-                ("silica.well".into(), "".into()),      // Testnet faucet
-                ("silica.forge".into(), "".into()),     // Developer fund
-                ("silica.bedrock".into(), "".into()),   // Staking deposits
-                ("silica.basalt".into(), "".into()),    // Insurance fund
-                ("silica.prism".into(), "".into()),     // Oracle rewards
-                ("silica.quarry".into(), "".into()),    // Community grants
+                ("silica.reserve".into(), "".into()), // Treasury
+                ("silica.geyser".into(), "".into()),  // Mining/staking rewards
+                ("silica.council".into(), "".into()), // Governance
+                ("silica.well".into(), "".into()),    // Testnet faucet
+                ("silica.forge".into(), "".into()),   // Developer fund
+                ("silica.bedrock".into(), "".into()), // Staking deposits
+                ("silica.basalt".into(), "".into()),  // Insurance fund
+                ("silica.prism".into(), "".into()),   // Oracle rewards
+                ("silica.quarry".into(), "".into()),  // Community grants
             ],
         }
     }
@@ -995,7 +1049,7 @@ mod tests {
             SilicaName::parse("admin"),
             Err(NameError::BannedName(_))
         ));
-        
+
         // Uppercase is lowercased and valid
         let name = SilicaName::parse("Alice").unwrap();
         assert_eq!(name.full_name(), "alice");
@@ -1057,24 +1111,14 @@ mod tests {
         let mut registry = NameRegistry::new();
 
         let name = SilicaName::parse("alice").unwrap();
-        let result = registry.register_user(
-            name.clone(),
-            "0x1234".into(),
-            "0x1234".into(),
-            1,
-        );
+        let result = registry.register_user(name.clone(), "0x1234".into(), "0x1234".into(), 1);
         assert!(result.is_ok());
 
         // Should resolve
         assert_eq!(registry.resolve(&name).unwrap(), "0x1234");
 
         // Should not allow duplicate
-        let result = registry.register_user(
-            name,
-            "0x5678".into(),
-            "0x5678".into(),
-            1,
-        );
+        let result = registry.register_user(name, "0x5678".into(), "0x5678".into(), 1);
         assert!(matches!(result, Err(NameError::AlreadyRegistered(_))));
     }
 
@@ -1084,19 +1128,14 @@ mod tests {
 
         // Regular user cannot register system name
         let name = SilicaName::parse_system("silica.newaccount").unwrap();
-        let result = registry.register_system(
-            "some-user",
-            name.clone(),
-            "0x1234".into(),
-        );
-        assert!(matches!(result, Err(NameError::UnauthorizedSystemRegistration)));
+        let result = registry.register_system("some-user", name.clone(), "0x1234".into());
+        assert!(matches!(
+            result,
+            Err(NameError::UnauthorizedSystemRegistration)
+        ));
 
         // Treasury can register system name
-        let result = registry.register_system(
-            "silica.reserve",
-            name.clone(),
-            "0x1234".into(),
-        );
+        let result = registry.register_system("silica.reserve", name.clone(), "0x1234".into());
         assert!(result.is_ok());
         assert_eq!(registry.resolve(&name).unwrap(), "0x1234");
     }
