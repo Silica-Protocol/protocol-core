@@ -23,42 +23,49 @@
 //!
 //! See Design Plan 005 for keyed account generation.
 
+use crate::types::AccountId;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
-// ============================================================================
-// Address Constants - Keyless System Accounts
-// ============================================================================
-
 /// Void address - rejects all transactions (catchall)
-pub const SYSTEM_VOID: &str = "0x0000000000000000000000000000000000000000";
+pub static SYSTEM_VOID: Lazy<AccountId> =
+    Lazy::new(|| AccountId::from_unchecked("0x0000000000000000000000000000000000000000"));
 
 /// Furnace address - burns tokens permanently
-pub const SYSTEM_FURNACE: &str = "0x0000000000000000000000000000000000000001";
+pub static SYSTEM_FURNACE: Lazy<AccountId> =
+    Lazy::new(|| AccountId::from_unchecked("0x0000000000000000000000000000000000000001"));
 
 /// Origin address - source of new coins (block rewards)
-pub const SYSTEM_ORIGIN: &str = "0x0000000000000000000000000000000000000002";
+pub static SYSTEM_ORIGIN: Lazy<AccountId> =
+    Lazy::new(|| AccountId::from_unchecked("0x0000000000000000000000000000000000000002"));
 
 /// Levy address - collects fees and slashed funds
-pub const SYSTEM_LEVY: &str = "0x0000000000000000000000000000000000000003";
+pub static SYSTEM_LEVY: Lazy<AccountId> =
+    Lazy::new(|| AccountId::from_unchecked("0x0000000000000000000000000000000000000003"));
 
 /// Conduit address - cross-chain bridge operations
-pub const SYSTEM_CONDUIT: &str = "0x0000000000000000000000000000000000000004";
+pub static SYSTEM_CONDUIT: Lazy<AccountId> =
+    Lazy::new(|| AccountId::from_unchecked("0x0000000000000000000000000000000000000004"));
 
 /// Registry address - name registry contract
-pub const SYSTEM_REGISTRY: &str = "0x0000000000000000000000000000000000000005";
+pub static SYSTEM_REGISTRY: Lazy<AccountId> =
+    Lazy::new(|| AccountId::from_unchecked("0x0000000000000000000000000000000000000005"));
 
 /// End of reserved address range
-pub const SYSTEM_RESERVED_END: &str = "0x00000000000000000000000000000000000000ff";
+pub static SYSTEM_RESERVED_END: Lazy<AccountId> =
+    Lazy::new(|| AccountId::from_unchecked("0x00000000000000000000000000000000000000ff"));
 
 /// All keyless system addresses with their names
-pub const KEYLESS_SYSTEM_ACCOUNTS: &[(&str, &str)] = &[
-    (SYSTEM_VOID, "silica.void"),
-    (SYSTEM_FURNACE, "silica.furnace"),
-    (SYSTEM_ORIGIN, "silica.origin"),
-    (SYSTEM_LEVY, "silica.levy"),
-    (SYSTEM_CONDUIT, "silica.conduit"),
-    (SYSTEM_REGISTRY, "silica.registry"),
-];
+pub static KEYLESS_SYSTEM_ACCOUNTS: Lazy<Vec<(AccountId, &'static str)>> = Lazy::new(|| {
+    vec![
+        (SYSTEM_VOID.clone(), "silica.void"),
+        (SYSTEM_FURNACE.clone(), "silica.furnace"),
+        (SYSTEM_ORIGIN.clone(), "silica.origin"),
+        (SYSTEM_LEVY.clone(), "silica.levy"),
+        (SYSTEM_CONDUIT.clone(), "silica.conduit"),
+        (SYSTEM_REGISTRY.clone(), "silica.registry"),
+    ]
+});
 
 /// Names of all keyed system accounts (addresses derived from genesis keypairs)
 pub const KEYED_SYSTEM_ACCOUNT_NAMES: &[&str] = &[
@@ -98,15 +105,15 @@ pub enum SystemAccountType {
 
 impl SystemAccountType {
     /// Get the fixed address for this system account type
-    pub fn address(&self) -> &'static str {
+    pub fn address(&self) -> AccountId {
         match self {
-            Self::Void => SYSTEM_VOID,
-            Self::Furnace => SYSTEM_FURNACE,
-            Self::Origin => SYSTEM_ORIGIN,
-            Self::Levy => SYSTEM_LEVY,
-            Self::Conduit => SYSTEM_CONDUIT,
-            Self::Registry => SYSTEM_REGISTRY,
-            Self::Reserved => SYSTEM_RESERVED_END, // Placeholder
+            Self::Void => SYSTEM_VOID.clone(),
+            Self::Furnace => SYSTEM_FURNACE.clone(),
+            Self::Origin => SYSTEM_ORIGIN.clone(),
+            Self::Levy => SYSTEM_LEVY.clone(),
+            Self::Conduit => SYSTEM_CONDUIT.clone(),
+            Self::Registry => SYSTEM_REGISTRY.clone(),
+            Self::Reserved => SYSTEM_RESERVED_END.clone(),
         }
     }
 
@@ -306,7 +313,8 @@ impl std::ops::BitOrAssign for SystemPermissions {
 /// assert!(is_reserved_address("0x00000000000000000000000000000000000000ff"));
 /// assert!(!is_reserved_address("0x1234567890123456789012345678901234567890"));
 /// ```
-pub fn is_reserved_address(address: &str) -> bool {
+pub fn is_reserved_address(address: impl AsRef<str>) -> bool {
+    let address = address.as_ref();
     // Must be 42 characters (0x + 40 hex chars)
     if address.len() != 42 {
         return false;
@@ -344,7 +352,8 @@ pub fn is_reserved_address(address: &str) -> bool {
 /// let account_type = system_account_from_address("0x0000000000000000000000000000000000000001");
 /// assert_eq!(account_type, Some(SystemAccountType::Furnace));
 /// ```
-pub fn system_account_from_address(address: &str) -> Option<SystemAccountType> {
+pub fn system_account_from_address(address: impl AsRef<str>) -> Option<SystemAccountType> {
+    let address = address.as_ref();
     if !is_reserved_address(address) {
         return None;
     }
@@ -367,7 +376,7 @@ pub fn system_account_from_address(address: &str) -> Option<SystemAccountType> {
 ///
 /// Returns the `silica.*` name if the address is a known system account,
 /// or `None` if it's not in the reserved range or is an unallocated reserved address.
-pub fn system_name_from_address(address: &str) -> Option<&'static str> {
+pub fn system_name_from_address(address: impl AsRef<str>) -> Option<&'static str> {
     let account_type = system_account_from_address(address)?;
 
     match account_type {
@@ -381,10 +390,10 @@ pub fn system_name_from_address(address: &str) -> Option<&'static str> {
 /// Only works for keyless system accounts (silica.void, silica.furnace, etc.).
 /// Returns `None` for keyed accounts (silica.reserve, silica.geyser, etc.)
 /// as their addresses are derived from public keys.
-pub fn address_from_system_name(name: &str) -> Option<&'static str> {
-    for (addr, n) in KEYLESS_SYSTEM_ACCOUNTS {
+pub fn address_from_system_name(name: &str) -> Option<AccountId> {
+    for (addr, n) in KEYLESS_SYSTEM_ACCOUNTS.iter() {
         if *n == name {
-            return Some(addr);
+            return Some(addr.clone());
         }
     }
     None
@@ -442,7 +451,8 @@ pub enum SystemAddressError {
 /// Returns an error if:
 /// - Recipient is void address (all transactions rejected)
 /// - Recipient is a reserved but unallocated address
-pub fn validate_recipient(recipient: &str) -> Result<(), SystemAddressError> {
+pub fn validate_recipient(recipient: impl AsRef<str>) -> Result<(), SystemAddressError> {
+    let recipient = recipient.as_ref();
     if !is_reserved_address(recipient) {
         return Ok(());
     }
@@ -463,7 +473,8 @@ pub fn validate_recipient(recipient: &str) -> Result<(), SystemAddressError> {
 ///
 /// Keyless system accounts cannot send (they have no private keys).
 /// Returns an error if the sender is a keyless system account.
-pub fn validate_sender(sender: &str) -> Result<(), SystemAddressError> {
+pub fn validate_sender(sender: impl AsRef<str>) -> Result<(), SystemAddressError> {
+    let sender = sender.as_ref();
     if !is_reserved_address(sender) {
         return Ok(());
     }
@@ -480,7 +491,7 @@ pub fn validate_sender(sender: &str) -> Result<(), SystemAddressError> {
 }
 
 /// Check if a transaction to this address should burn tokens.
-pub fn should_burn_on_receive(recipient: &str) -> bool {
+pub fn should_burn_on_receive(recipient: impl AsRef<str>) -> bool {
     system_account_from_address(recipient)
         .map(|t| t.burns_on_receive())
         .unwrap_or(false)
@@ -489,7 +500,7 @@ pub fn should_burn_on_receive(recipient: &str) -> bool {
 /// Check if creating an account at this address should be rejected.
 ///
 /// User accounts cannot be created in the reserved address range.
-pub fn is_account_creation_blocked(address: &str) -> bool {
+pub fn is_account_creation_blocked(address: impl AsRef<str>) -> bool {
     is_reserved_address(address)
 }
 
@@ -504,13 +515,13 @@ mod tests {
     #[test]
     fn test_reserved_address_detection() {
         // Should be reserved
-        assert!(is_reserved_address(SYSTEM_VOID));
-        assert!(is_reserved_address(SYSTEM_FURNACE));
-        assert!(is_reserved_address(SYSTEM_ORIGIN));
-        assert!(is_reserved_address(SYSTEM_LEVY));
-        assert!(is_reserved_address(SYSTEM_CONDUIT));
-        assert!(is_reserved_address(SYSTEM_REGISTRY));
-        assert!(is_reserved_address(SYSTEM_RESERVED_END));
+        assert!(is_reserved_address(SYSTEM_VOID.as_str()));
+        assert!(is_reserved_address(SYSTEM_FURNACE.as_str()));
+        assert!(is_reserved_address(SYSTEM_ORIGIN.as_str()));
+        assert!(is_reserved_address(SYSTEM_LEVY.as_str()));
+        assert!(is_reserved_address(SYSTEM_CONDUIT.as_str()));
+        assert!(is_reserved_address(SYSTEM_REGISTRY.as_str()));
+        assert!(is_reserved_address(SYSTEM_RESERVED_END.as_str()));
         assert!(is_reserved_address(
             "0x000000000000000000000000000000000000007f"
         ));
@@ -529,27 +540,27 @@ mod tests {
     #[test]
     fn test_system_account_from_address() {
         assert_eq!(
-            system_account_from_address(SYSTEM_VOID),
+            system_account_from_address(SYSTEM_VOID.as_str()),
             Some(SystemAccountType::Void)
         );
         assert_eq!(
-            system_account_from_address(SYSTEM_FURNACE),
+            system_account_from_address(SYSTEM_FURNACE.as_str()),
             Some(SystemAccountType::Furnace)
         );
         assert_eq!(
-            system_account_from_address(SYSTEM_ORIGIN),
+            system_account_from_address(SYSTEM_ORIGIN.as_str()),
             Some(SystemAccountType::Origin)
         );
         assert_eq!(
-            system_account_from_address(SYSTEM_LEVY),
+            system_account_from_address(SYSTEM_LEVY.as_str()),
             Some(SystemAccountType::Levy)
         );
         assert_eq!(
-            system_account_from_address(SYSTEM_CONDUIT),
+            system_account_from_address(SYSTEM_CONDUIT.as_str()),
             Some(SystemAccountType::Conduit)
         );
         assert_eq!(
-            system_account_from_address(SYSTEM_REGISTRY),
+            system_account_from_address(SYSTEM_REGISTRY.as_str()),
             Some(SystemAccountType::Registry)
         );
 
@@ -568,16 +579,22 @@ mod tests {
 
     #[test]
     fn test_system_name_from_address() {
-        assert_eq!(system_name_from_address(SYSTEM_VOID), Some("silica.void"));
         assert_eq!(
-            system_name_from_address(SYSTEM_FURNACE),
+            system_name_from_address(SYSTEM_VOID.as_str()),
+            Some("silica.void")
+        );
+        assert_eq!(
+            system_name_from_address(SYSTEM_FURNACE.as_str()),
             Some("silica.furnace")
         );
         assert_eq!(
-            system_name_from_address(SYSTEM_ORIGIN),
+            system_name_from_address(SYSTEM_ORIGIN.as_str()),
             Some("silica.origin")
         );
-        assert_eq!(system_name_from_address(SYSTEM_LEVY), Some("silica.levy"));
+        assert_eq!(
+            system_name_from_address(SYSTEM_LEVY.as_str()),
+            Some("silica.levy")
+        );
 
         // Reserved but unallocated returns None
         assert_eq!(
@@ -594,16 +611,22 @@ mod tests {
 
     #[test]
     fn test_address_from_system_name() {
-        assert_eq!(address_from_system_name("silica.void"), Some(SYSTEM_VOID));
+        assert_eq!(
+            address_from_system_name("silica.void"),
+            Some(SYSTEM_VOID.clone())
+        );
         assert_eq!(
             address_from_system_name("silica.furnace"),
-            Some(SYSTEM_FURNACE)
+            Some(SYSTEM_FURNACE.clone())
         );
         assert_eq!(
             address_from_system_name("silica.origin"),
-            Some(SYSTEM_ORIGIN)
+            Some(SYSTEM_ORIGIN.clone())
         );
-        assert_eq!(address_from_system_name("silica.levy"), Some(SYSTEM_LEVY));
+        assert_eq!(
+            address_from_system_name("silica.levy"),
+            Some(SYSTEM_LEVY.clone())
+        );
 
         // Keyed accounts return None (address derived from pubkey)
         assert_eq!(address_from_system_name("silica.reserve"), None);
@@ -689,14 +712,14 @@ mod tests {
         assert!(validate_recipient("0x1234567890123456789012345678901234567890").is_ok());
 
         // Furnace is OK (burns)
-        assert!(validate_recipient(SYSTEM_FURNACE).is_ok());
+        assert!(validate_recipient(SYSTEM_FURNACE.as_str()).is_ok());
 
         // Levy is OK (collects fees)
-        assert!(validate_recipient(SYSTEM_LEVY).is_ok());
+        assert!(validate_recipient(SYSTEM_LEVY.as_str()).is_ok());
 
         // Void is NOT OK
         assert!(matches!(
-            validate_recipient(SYSTEM_VOID),
+            validate_recipient(SYSTEM_VOID.as_str()),
             Err(SystemAddressError::VoidAddressNotAllowed)
         ));
 
@@ -713,32 +736,32 @@ mod tests {
         assert!(validate_sender("0x1234567890123456789012345678901234567890").is_ok());
 
         // Origin is OK (can mint)
-        assert!(validate_sender(SYSTEM_ORIGIN).is_ok());
+        assert!(validate_sender(SYSTEM_ORIGIN.as_str()).is_ok());
 
         // Void cannot send
         assert!(matches!(
-            validate_sender(SYSTEM_VOID),
+            validate_sender(SYSTEM_VOID.as_str()),
             Err(SystemAddressError::KeylessAccountCannotSend(_))
         ));
 
         // Furnace cannot send
         assert!(matches!(
-            validate_sender(SYSTEM_FURNACE),
+            validate_sender(SYSTEM_FURNACE.as_str()),
             Err(SystemAddressError::KeylessAccountCannotSend(_))
         ));
 
         // Levy cannot send (receives only)
         assert!(matches!(
-            validate_sender(SYSTEM_LEVY),
+            validate_sender(SYSTEM_LEVY.as_str()),
             Err(SystemAddressError::KeylessAccountCannotSend(_))
         ));
     }
 
     #[test]
     fn test_should_burn_on_receive() {
-        assert!(should_burn_on_receive(SYSTEM_FURNACE));
-        assert!(!should_burn_on_receive(SYSTEM_VOID));
-        assert!(!should_burn_on_receive(SYSTEM_LEVY));
+        assert!(should_burn_on_receive(SYSTEM_FURNACE.as_str()));
+        assert!(!should_burn_on_receive(SYSTEM_VOID.as_str()));
+        assert!(!should_burn_on_receive(SYSTEM_LEVY.as_str()));
         assert!(!should_burn_on_receive(
             "0x1234567890123456789012345678901234567890"
         ));
@@ -747,8 +770,8 @@ mod tests {
     #[test]
     fn test_account_creation_blocked() {
         // Reserved range is blocked
-        assert!(is_account_creation_blocked(SYSTEM_VOID));
-        assert!(is_account_creation_blocked(SYSTEM_FURNACE));
+        assert!(is_account_creation_blocked(SYSTEM_VOID.as_str()));
+        assert!(is_account_creation_blocked(SYSTEM_FURNACE.as_str()));
         assert!(is_account_creation_blocked(
             "0x00000000000000000000000000000000000000ff"
         ));

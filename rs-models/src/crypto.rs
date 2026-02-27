@@ -9,15 +9,15 @@ use std::path::Path;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 // ML-DSA (FIPS 204) imports
+use ml_dsa::signature::{SignatureEncoding, Signer as MlDsaSigner, Verifier as MlDsaVerifier};
 use ml_dsa::Signature as MlDsaSignature;
 use ml_dsa::VerifyingKey as MlDsaVerifyingKey;
-use ml_dsa::signature::{SignatureEncoding, Signer as MlDsaSigner, Verifier as MlDsaVerifier};
 use ml_dsa::{KeyGen, MlDsa44, MlDsa65, MlDsa87};
 
 // Mnemonic derivation (SIP-1) - re-export for consumers
 pub use ml_dsa_bip39::{
-    SILICA_COIN_TYPE, derive_keypair as derive_ml_dsa_keypair, derive_keypair_with_coin,
-    mnemonic_to_seed,
+    derive_keypair as derive_ml_dsa_keypair, derive_keypair_with_coin, mnemonic_to_seed,
+    SILICA_COIN_TYPE,
 };
 // Use alias to avoid conflict with local MlDsaLevel
 use ml_dsa_bip39::MlDsaLevel as Sip1Level;
@@ -225,7 +225,7 @@ pub struct ChertKeyPair {
 /// Hex encoding for binary data in JSON (much more compact than byte arrays)
 /// Compatible with both human-readable (JSON) and binary (postcard) formats
 mod hex_bytes {
-    use serde::{Deserializer, Serializer, de::SeqAccess};
+    use serde::{de::SeqAccess, Deserializer, Serializer};
 
     pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -311,7 +311,7 @@ mod hex_bytes {
 /// Hex encoding for optional binary data
 /// Compatible with both human-readable (JSON) and binary (postcard) formats
 pub mod hex_bytes_option {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer, de::SeqAccess};
+    use serde::{de::SeqAccess, Deserialize, Deserializer, Serialize, Serializer};
 
     pub fn serialize<S>(bytes: &Option<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -389,7 +389,7 @@ impl ChertKeyPair {
     /// Generate a new Ed25519 keypair
     pub fn generate_ed25519() -> Result<Self> {
         use ed25519_dalek::SigningKey;
-        use rand::{RngCore, rngs::OsRng};
+        use rand::{rngs::OsRng, RngCore};
 
         // Generate secure random bytes using the same pattern as silica
         let mut secret_bytes = [0u8; 32];
@@ -417,7 +417,7 @@ impl ChertKeyPair {
     ///
     /// Uses random seed generation to avoid rand_core version conflicts.
     pub fn generate_ml_dsa_at_level(level: MlDsaLevel) -> Result<Self> {
-        use rand::{RngCore, rngs::OsRng};
+        use rand::{rngs::OsRng, RngCore};
 
         // Generate random seed (works with rand 0.8)
         let mut seed = [0u8; 32];
@@ -1104,7 +1104,7 @@ impl ChertCrypto for StandardCrypto {
     }
 
     fn secure_random(length: usize) -> Result<Vec<u8>> {
-        use rand::{RngCore, rngs::OsRng};
+        use rand::{rngs::OsRng, RngCore};
 
         let mut bytes = vec![0u8; length];
         OsRng.fill_bytes(&mut bytes);
