@@ -25,38 +25,213 @@
 
 use crate::types::AccountId;
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt;
+use std::ops::Deref;
+
+#[derive(Clone)]
+pub struct SystemAccountId(AccountId);
+
+impl Deref for SystemAccountId {
+    type Target = AccountId;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl AsRef<AccountId> for SystemAccountId {
+    fn as_ref(&self) -> &AccountId {
+        &self.0
+    }
+}
+
+impl AsRef<str> for SystemAccountId {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl SystemAccountId {
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
+    pub fn as_account_id(&self) -> &AccountId {
+        &self.0
+    }
+}
+
+impl fmt::Display for SystemAccountId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl fmt::Debug for SystemAccountId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SystemAccountId({})", self.0)
+    }
+}
+
+impl Serialize for SystemAccountId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for SystemAccountId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let account = AccountId::new(s).map_err(serde::de::Error::custom)?;
+        Ok(SystemAccountId(account))
+    }
+}
+
+impl std::borrow::Borrow<str> for SystemAccountId {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl PartialEq for SystemAccountId {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl PartialEq<AccountId> for SystemAccountId {
+    fn eq(&self, other: &AccountId) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl PartialEq<SystemAccountId> for AccountId {
+    fn eq(&self, other: &SystemAccountId) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl PartialEq<&str> for SystemAccountId {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+impl PartialEq<SystemAccountId> for &str {
+    fn eq(&self, other: &SystemAccountId) -> bool {
+        *self == other.as_str()
+    }
+}
+
+impl From<SystemAccountId> for AccountId {
+    fn from(id: SystemAccountId) -> Self {
+        id.0
+    }
+}
+
+fn deterministic_system_account(name: &str) -> AccountId {
+    let mut input = Vec::with_capacity("SILICA_SYSTEM_ACCOUNT_V1".len() + name.len());
+    input.extend_from_slice(b"SILICA_SYSTEM_ACCOUNT_V1");
+    input.extend_from_slice(name.as_bytes());
+    let hash = blake3::hash(&input);
+    let encoded = format!("0x{}", hex::encode(&hash.as_bytes()[..20]));
+    AccountId::new(encoded).expect("deterministic system account derivation must produce 0x address")
+}
 
 /// Void address - rejects all transactions (catchall)
-pub static SYSTEM_VOID: Lazy<AccountId> =
-    Lazy::new(|| AccountId::from_unchecked("0x0000000000000000000000000000000000000000"));
+pub static SYSTEM_VOID: Lazy<SystemAccountId> = Lazy::new(|| {
+    SystemAccountId(
+        AccountId::new("0x0000000000000000000000000000000000000000")
+            .expect("hardcoded system account id must be valid"),
+    )
+});
 
 /// Furnace address - burns tokens permanently
-pub static SYSTEM_FURNACE: Lazy<AccountId> =
-    Lazy::new(|| AccountId::from_unchecked("0x0000000000000000000000000000000000000001"));
+pub static SYSTEM_FURNACE: Lazy<SystemAccountId> = Lazy::new(|| {
+    SystemAccountId(
+        AccountId::new("0x0000000000000000000000000000000000000001")
+            .expect("hardcoded system account id must be valid"),
+    )
+});
 
 /// Origin address - source of new coins (block rewards)
-pub static SYSTEM_ORIGIN: Lazy<AccountId> =
-    Lazy::new(|| AccountId::from_unchecked("0x0000000000000000000000000000000000000002"));
+pub static SYSTEM_ORIGIN: Lazy<SystemAccountId> = Lazy::new(|| {
+    SystemAccountId(
+        AccountId::new("0x0000000000000000000000000000000000000002")
+            .expect("hardcoded system account id must be valid"),
+    )
+});
 
 /// Levy address - collects fees and slashed funds
-pub static SYSTEM_LEVY: Lazy<AccountId> =
-    Lazy::new(|| AccountId::from_unchecked("0x0000000000000000000000000000000000000003"));
+pub static SYSTEM_LEVY: Lazy<SystemAccountId> = Lazy::new(|| {
+    SystemAccountId(
+        AccountId::new("0x0000000000000000000000000000000000000003")
+            .expect("hardcoded system account id must be valid"),
+    )
+});
 
 /// Conduit address - cross-chain bridge operations
-pub static SYSTEM_CONDUIT: Lazy<AccountId> =
-    Lazy::new(|| AccountId::from_unchecked("0x0000000000000000000000000000000000000004"));
+pub static SYSTEM_CONDUIT: Lazy<SystemAccountId> = Lazy::new(|| {
+    SystemAccountId(
+        AccountId::new("0x0000000000000000000000000000000000000004")
+            .expect("hardcoded system account id must be valid"),
+    )
+});
 
 /// Registry address - name registry contract
-pub static SYSTEM_REGISTRY: Lazy<AccountId> =
-    Lazy::new(|| AccountId::from_unchecked("0x0000000000000000000000000000000000000005"));
+pub static SYSTEM_REGISTRY: Lazy<SystemAccountId> = Lazy::new(|| {
+    SystemAccountId(
+        AccountId::new("0x0000000000000000000000000000000000000005")
+            .expect("hardcoded system account id must be valid"),
+    )
+});
 
 /// End of reserved address range
-pub static SYSTEM_RESERVED_END: Lazy<AccountId> =
-    Lazy::new(|| AccountId::from_unchecked("0x00000000000000000000000000000000000000ff"));
+pub static SYSTEM_RESERVED_END: Lazy<SystemAccountId> = Lazy::new(|| {
+    SystemAccountId(
+        AccountId::new("0x00000000000000000000000000000000000000ff")
+            .expect("hardcoded system account id must be valid"),
+    )
+});
+
+/// Treasury address - protocol treasury
+pub static SYSTEM_TREASURY: Lazy<SystemAccountId> = Lazy::new(|| {
+    SystemAccountId(deterministic_system_account("silica.reserve"))
+});
+
+/// Rewards address - staking rewards distribution
+pub static SYSTEM_REWARDS: Lazy<SystemAccountId> = Lazy::new(|| {
+    SystemAccountId(deterministic_system_account("silica.geyser"))
+});
+
+/// Developer fund address
+pub static SYSTEM_DEVFUND: Lazy<SystemAccountId> = Lazy::new(|| {
+    SystemAccountId(deterministic_system_account("silica.forge"))
+});
+
+/// Governance address - on-chain governance
+pub static SYSTEM_GOVERNANCE: Lazy<SystemAccountId> = Lazy::new(|| {
+    SystemAccountId(deterministic_system_account("silica.council"))
+});
+
+/// Faucet address - testnet faucet
+pub static SYSTEM_FAUCET: Lazy<SystemAccountId> = Lazy::new(|| {
+    SystemAccountId(deterministic_system_account("silica.well"))
+});
+
+/// Bridge recipient address - cross-chain bridge
+pub static SYSTEM_BRIDGE: Lazy<SystemAccountId> =
+    Lazy::new(|| SystemAccountId(deterministic_system_account("zkbridge.bridge")));
 
 /// All keyless system addresses with their names
-pub static KEYLESS_SYSTEM_ACCOUNTS: Lazy<Vec<(AccountId, &'static str)>> = Lazy::new(|| {
+pub static KEYLESS_SYSTEM_ACCOUNTS: Lazy<Vec<(SystemAccountId, &'static str)>> = Lazy::new(|| {
     vec![
         (SYSTEM_VOID.clone(), "silica.void"),
         (SYSTEM_FURNACE.clone(), "silica.furnace"),
@@ -66,6 +241,11 @@ pub static KEYLESS_SYSTEM_ACCOUNTS: Lazy<Vec<(AccountId, &'static str)>> = Lazy:
         (SYSTEM_REGISTRY.clone(), "silica.registry"),
     ]
 });
+
+/// Get keyless system accounts as a slice for iteration
+pub fn keyless_system_accounts() -> &'static [(SystemAccountId, &'static str)] {
+    &KEYLESS_SYSTEM_ACCOUNTS
+}
 
 /// Names of all keyed system accounts (addresses derived from genesis keypairs)
 pub const KEYED_SYSTEM_ACCOUNT_NAMES: &[&str] = &[
@@ -105,7 +285,7 @@ pub enum SystemAccountType {
 
 impl SystemAccountType {
     /// Get the fixed address for this system account type
-    pub fn address(&self) -> AccountId {
+    pub fn address(&self) -> SystemAccountId {
         match self {
             Self::Void => SYSTEM_VOID.clone(),
             Self::Furnace => SYSTEM_FURNACE.clone(),
@@ -390,7 +570,7 @@ pub fn system_name_from_address(address: impl AsRef<str>) -> Option<&'static str
 /// Only works for keyless system accounts (silica.void, silica.furnace, etc.).
 /// Returns `None` for keyed accounts (silica.reserve, silica.geyser, etc.)
 /// as their addresses are derived from public keys.
-pub fn address_from_system_name(name: &str) -> Option<AccountId> {
+pub fn address_from_system_name(name: &str) -> Option<SystemAccountId> {
     for (addr, n) in KEYLESS_SYSTEM_ACCOUNTS.iter() {
         if *n == name {
             return Some(addr.clone());

@@ -8,7 +8,7 @@ fn main() -> anyhow::Result<()> {
     println!("✓ Ed25519 key generation works");
 
     // Test address generation
-    let address = keypair.address("ACCOUNT");
+    let address = keypair.account();
     println!("✓ Address generation: {}", address);
 
     // Verify address format

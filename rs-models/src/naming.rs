@@ -23,6 +23,17 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+use crate::types::AccountId;
+
+fn derive_system_account_id(name: &str) -> AccountId {
+    let mut input = Vec::with_capacity("SILICA_SYSTEM_ACCOUNT_V1".len() + name.len());
+    input.extend_from_slice(b"SILICA_SYSTEM_ACCOUNT_V1");
+    input.extend_from_slice(name.as_bytes());
+    let hash = blake3::hash(&input);
+    let encoded = format!("0x{}", hex::encode(&hash.as_bytes()[..20]));
+    AccountId::new(encoded).expect("deterministic system account derivation must be valid")
+}
+
 // ============================================================================
 // Error Types
 // ============================================================================
@@ -390,9 +401,9 @@ impl TryFrom<String> for SilicaName {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NameRecord {
     /// The resolved address
-    pub address: String,
+    pub address: AccountId,
     /// Owner address (who can transfer/update)
-    pub owner: Option<String>,
+    pub owner: Option<AccountId>,
     /// When the name was registered
     pub registered_at: DateTime<Utc>,
     /// When the name expires (None = permanent)
@@ -405,7 +416,7 @@ pub struct NameRecord {
 
 impl NameRecord {
     /// Create a new user name record with expiration.
-    pub fn new_user(address: String, owner: String, duration_years: u8) -> Self {
+    pub fn new_user(address: AccountId, owner: AccountId, duration_years: u8) -> Self {
         let now = Utc::now();
         let expires_at = now + chrono::Duration::days(365 * duration_years as i64);
 
@@ -420,7 +431,7 @@ impl NameRecord {
     }
 
     /// Create a permanent system name record.
-    pub fn new_system(address: String, owner: Option<String>) -> Self {
+    pub fn new_system(address: AccountId, owner: Option<AccountId>) -> Self {
         Self {
             address,
             owner,
@@ -455,6 +466,16 @@ impl NameRecord {
         let base = self.expires_at.unwrap_or_else(Utc::now);
         self.expires_at = Some(base + chrono::Duration::days(365 * additional_years as i64));
         Ok(())
+    }
+
+    /// Get address as String for JSON serialization
+    pub fn address_as_str(&self) -> String {
+        self.address.to_string()
+    }
+
+    /// Get owner as String if present
+    pub fn owner_as_str(&self) -> Option<String> {
+        self.owner.as_ref().map(|o| o.to_string())
     }
 }
 
@@ -519,14 +540,14 @@ mod names_map_serde {
     }
 }
 
-/// Serialization helper for BTreeMap<String, SilicaName>
+/// Serialization helper for BTreeMap<AccountId, SilicaName>
 mod reverse_map_serde {
     use super::*;
     use serde::de::{MapAccess, Visitor};
     use serde::ser::SerializeMap;
 
     pub fn serialize<S>(
-        map: &BTreeMap<String, SilicaName>,
+        map: &BTreeMap<AccountId, SilicaName>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
@@ -534,19 +555,19 @@ mod reverse_map_serde {
     {
         let mut map_ser = serializer.serialize_map(Some(map.len()))?;
         for (k, v) in map {
-            map_ser.serialize_entry(k, v.full_name())?;
+            map_ser.serialize_entry(k.as_str(), v.full_name())?;
         }
         map_ser.end()
     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<BTreeMap<String, SilicaName>, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<BTreeMap<AccountId, SilicaName>, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         struct ReverseMapVisitor;
 
         impl<'de> Visitor<'de> for ReverseMapVisitor {
-            type Value = BTreeMap<String, SilicaName>;
+            type Value = BTreeMap<AccountId, SilicaName>;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
                 formatter
@@ -562,7 +583,10 @@ mod reverse_map_serde {
                     let name = SilicaName::parse_system(&value).map_err(|_| {
                         serde::de::Error::custom(format!("invalid name: {}", value))
                     })?;
-                    map.insert(key, name);
+                    let account_id = AccountId::new(&key).map_err(|err| {
+                        serde::de::Error::custom(format!("invalid account id '{}': {}", key, err))
+                    })?;
+                    map.insert(account_id, name);
                 }
                 Ok(map)
             }
@@ -583,7 +607,7 @@ pub struct NameRegistry {
     names: BTreeMap<SilicaName, NameRecord>,
     /// Reverse resolution: address → primary name
     #[serde(with = "reverse_map_serde")]
-    reverse: BTreeMap<String, SilicaName>,
+    reverse: BTreeMap<AccountId, SilicaName>,
 }
 
 impl NameRegistry {
@@ -612,8 +636,10 @@ impl NameRegistry {
         for (name, address) in &genesis_accounts.keyed_accounts {
             if let Ok(parsed) = SilicaName::parse_system(name) {
                 // All keyed system names are owned by silica.reserve
-                let record =
-                    NameRecord::new_system(address.clone(), Some("silica.reserve".to_string()));
+                let record = NameRecord::new_system(
+                    address.clone(),
+                    Some(derive_system_account_id("silica.reserve")),
+                );
                 registry.names.insert(parsed.clone(), record);
                 registry.reverse.insert(address.clone(), parsed);
             }
@@ -633,7 +659,7 @@ impl NameRegistry {
             return Err(NameError::Expired(name.full_name().to_string()));
         }
 
-        Ok(&record.address)
+        Ok(record.address.as_str())
     }
 
     /// Resolve a name string to its address.
@@ -666,8 +692,8 @@ impl NameRegistry {
     pub fn register_user(
         &mut self,
         name: SilicaName,
-        address: String,
-        owner: String,
+        address: AccountId,
+        owner: AccountId,
         duration_years: u8,
     ) -> Result<(), NameError> {
         // Check not already registered
@@ -696,12 +722,12 @@ impl NameRegistry {
     /// * `address` - The address to map to
     pub fn register_system(
         &mut self,
-        caller: &str,
+        caller: &AccountId,
         name: SilicaName,
-        address: String,
+        address: AccountId,
     ) -> Result<(), NameError> {
-        // Only silica.reserve can register system names
-        if caller != "silica.reserve" {
+        // Only canonical silica.reserve account can register system names
+        if caller != &derive_system_account_id("silica.reserve") {
             return Err(NameError::UnauthorizedSystemRegistration);
         }
 
@@ -715,7 +741,7 @@ impl NameRegistry {
             return Err(NameError::AlreadyRegistered(name.full_name().to_string()));
         }
 
-        let record = NameRecord::new_system(address.clone(), Some(caller.to_string()));
+        let record = NameRecord::new_system(address.clone(), Some(caller.clone()));
         self.names.insert(name.clone(), record);
         self.reverse.insert(address, name);
 
@@ -726,8 +752,8 @@ impl NameRegistry {
     pub fn transfer(
         &mut self,
         name: &SilicaName,
-        caller: &str,
-        new_owner: String,
+        caller: &AccountId,
+        new_owner: AccountId,
     ) -> Result<(), NameError> {
         let record = self
             .names
@@ -753,8 +779,8 @@ impl NameRegistry {
     pub fn update_address(
         &mut self,
         name: &SilicaName,
-        caller: &str,
-        new_address: String,
+        caller: &AccountId,
+        new_address: AccountId,
     ) -> Result<(), NameError> {
         let record = self
             .names
@@ -784,7 +810,7 @@ impl NameRegistry {
     pub fn renew(
         &mut self,
         name: &SilicaName,
-        caller: &str,
+        caller: &AccountId,
         additional_years: u8,
     ) -> Result<(), NameError> {
         let record = self
@@ -806,9 +832,9 @@ impl NameRegistry {
     /// Set reverse resolution preference for an address.
     pub fn set_reverse(
         &mut self,
-        address: &str,
+        address: &AccountId,
         name: SilicaName,
-        caller: &str,
+        caller: &AccountId,
     ) -> Result<(), NameError> {
         // Verify caller owns the name
         let record = self
@@ -824,7 +850,7 @@ impl NameRegistry {
         }
 
         // Verify the name points to this address
-        if record.address != address {
+        if record.address.as_str() != address.as_str() {
             return Err(NameError::NotOwner(format!(
                 "Name {} does not resolve to {}",
                 name.full_name(),
@@ -832,7 +858,7 @@ impl NameRegistry {
             )));
         }
 
-        self.reverse.insert(address.to_string(), name);
+        self.reverse.insert(address.clone(), name);
         Ok(())
     }
 
@@ -857,7 +883,7 @@ impl NameRegistry {
     pub fn remove_name(
         &mut self,
         name: &SilicaName,
-        caller: &str,
+        caller: &AccountId,
     ) -> Result<NameRecord, NameError> {
         let record = self
             .names
@@ -892,9 +918,9 @@ impl NameRegistry {
 #[derive(Debug, Clone, Default)]
 pub struct GenesisNameConfig {
     /// Keyless system accounts (address is fixed, no owner)
-    pub keyless_accounts: Vec<(String, String)>,
+    pub keyless_accounts: Vec<(String, AccountId)>,
     /// Keyed system accounts (address from keypair, owned by silica.reserve)
-    pub keyed_accounts: Vec<(String, String)>,
+    pub keyed_accounts: Vec<(String, AccountId)>,
 }
 
 impl GenesisNameConfig {
@@ -905,47 +931,80 @@ impl GenesisNameConfig {
             keyless_accounts: vec![
                 (
                     "silica.void".into(),
-                    "0x0000000000000000000000000000000000000000".into(),
+                    AccountId::new("0x0000000000000000000000000000000000000000")
+                        .expect("hardcoded system account id must be valid"),
                 ),
                 (
                     "silica.furnace".into(),
-                    "0x0000000000000000000000000000000000000001".into(),
+                    AccountId::new("0x0000000000000000000000000000000000000001")
+                        .expect("hardcoded system account id must be valid"),
                 ),
                 (
                     "silica.origin".into(),
-                    "0x0000000000000000000000000000000000000002".into(),
+                    AccountId::new("0x0000000000000000000000000000000000000002")
+                        .expect("hardcoded system account id must be valid"),
                 ),
                 (
                     "silica.levy".into(),
-                    "0x0000000000000000000000000000000000000003".into(),
+                    AccountId::new("0x0000000000000000000000000000000000000003")
+                        .expect("hardcoded system account id must be valid"),
                 ),
                 (
                     "silica.conduit".into(),
-                    "0x0000000000000000000000000000000000000004".into(),
+                    AccountId::new("0x0000000000000000000000000000000000000004")
+                        .expect("hardcoded system account id must be valid"),
                 ),
                 (
                     "silica.registry".into(),
-                    "0x0000000000000000000000000000000000000005".into(),
+                    AccountId::new("0x0000000000000000000000000000000000000005")
+                        .expect("hardcoded system account id must be valid"),
                 ),
             ],
             // Keyed accounts (addresses will be set from genesis keypairs)
             // These are placeholders - actual addresses derived from Dilithium2 public keys
             keyed_accounts: vec![
-                ("silica.reserve".into(), "".into()), // Treasury
-                ("silica.geyser".into(), "".into()),  // Mining/staking rewards
-                ("silica.council".into(), "".into()), // Governance
-                ("silica.well".into(), "".into()),    // Testnet faucet
-                ("silica.forge".into(), "".into()),   // Developer fund
-                ("silica.bedrock".into(), "".into()), // Staking deposits
-                ("silica.basalt".into(), "".into()),  // Insurance fund
-                ("silica.prism".into(), "".into()),   // Oracle rewards
-                ("silica.quarry".into(), "".into()),  // Community grants
+                (
+                    "silica.reserve".into(),
+                    derive_system_account_id("silica.reserve"),
+                ), // Treasury
+                (
+                    "silica.geyser".into(),
+                    derive_system_account_id("silica.geyser"),
+                ),  // Mining/staking rewards
+                (
+                    "silica.council".into(),
+                    derive_system_account_id("silica.council"),
+                ), // Governance
+                (
+                    "silica.well".into(),
+                    derive_system_account_id("silica.well"),
+                ),    // Testnet faucet
+                (
+                    "silica.forge".into(),
+                    derive_system_account_id("silica.forge"),
+                ),   // Developer fund
+                (
+                    "silica.bedrock".into(),
+                    derive_system_account_id("silica.bedrock"),
+                ), // Staking deposits
+                (
+                    "silica.basalt".into(),
+                    derive_system_account_id("silica.basalt"),
+                ),  // Insurance fund
+                (
+                    "silica.prism".into(),
+                    derive_system_account_id("silica.prism"),
+                ),   // Oracle rewards
+                (
+                    "silica.quarry".into(),
+                    derive_system_account_id("silica.quarry"),
+                ),  // Community grants
             ],
         }
     }
 
     /// Set the address for a keyed account (called during genesis generation).
-    pub fn set_keyed_address(&mut self, name: &str, address: String) {
+    pub fn set_keyed_address(&mut self, name: &str, address: AccountId) {
         for (n, addr) in &mut self.keyed_accounts {
             if n == name {
                 *addr = address;
@@ -1111,14 +1170,27 @@ mod tests {
         let mut registry = NameRegistry::new();
 
         let name = SilicaName::parse("alice").unwrap();
-        let result = registry.register_user(name.clone(), "0x1234".into(), "0x1234".into(), 1);
+        let result = registry.register_user(
+            name.clone(),
+            AccountId::new("0x0000000000000000000000000000000000001234").unwrap(),
+            AccountId::new("0x0000000000000000000000000000000000001234").unwrap(),
+            1,
+        );
         assert!(result.is_ok());
 
         // Should resolve
-        assert_eq!(registry.resolve(&name).unwrap(), "0x1234");
+        assert_eq!(
+            registry.resolve(&name).unwrap(),
+            "0x0000000000000000000000000000000000001234"
+        );
 
         // Should not allow duplicate
-        let result = registry.register_user(name, "0x5678".into(), "0x5678".into(), 1);
+        let result = registry.register_user(
+            name,
+            AccountId::new("0x0000000000000000000000000000000000005678").unwrap(),
+            AccountId::new("0x0000000000000000000000000000000000005678").unwrap(),
+            1,
+        );
         assert!(matches!(result, Err(NameError::AlreadyRegistered(_))));
     }
 
@@ -1128,16 +1200,27 @@ mod tests {
 
         // Regular user cannot register system name
         let name = SilicaName::parse_system("silica.newaccount").unwrap();
-        let result = registry.register_system("some-user", name.clone(), "0x1234".into());
+        let result = registry.register_system(
+            &AccountId::new("0x000000000000000000000000000000000000beef").unwrap(),
+            name.clone(),
+            AccountId::new("0x0000000000000000000000000000000000001234").unwrap(),
+        );
         assert!(matches!(
             result,
             Err(NameError::UnauthorizedSystemRegistration)
         ));
 
         // Treasury can register system name
-        let result = registry.register_system("silica.reserve", name.clone(), "0x1234".into());
+        let result = registry.register_system(
+            &derive_system_account_id("silica.reserve"),
+            name.clone(),
+            AccountId::new("0x0000000000000000000000000000000000001234").unwrap(),
+        );
         assert!(result.is_ok());
-        assert_eq!(registry.resolve(&name).unwrap(), "0x1234");
+        assert_eq!(
+            registry.resolve(&name).unwrap(),
+            "0x0000000000000000000000000000000000001234"
+        );
     }
 
     #[test]
@@ -1152,7 +1235,11 @@ mod tests {
 
     #[test]
     fn test_name_expiration() {
-        let mut record = NameRecord::new_user("0x1234".into(), "0x1234".into(), 1);
+        let mut record = NameRecord::new_user(
+            AccountId::new("0x0000000000000000000000000000000000001234").unwrap(),
+            AccountId::new("0x0000000000000000000000000000000000001234").unwrap(),
+            1,
+        );
         assert!(!record.is_expired());
         assert!(record.is_active());
 
@@ -1164,7 +1251,10 @@ mod tests {
 
     #[test]
     fn test_permanent_names() {
-        let record = NameRecord::new_system("0x1234".into(), None);
+        let record = NameRecord::new_system(
+            AccountId::new("0x0000000000000000000000000000000000001234").unwrap(),
+            None,
+        );
         assert!(record.permanent);
         assert!(!record.is_expired());
         assert!(record.expires_at.is_none());

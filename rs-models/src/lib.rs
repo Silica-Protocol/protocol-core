@@ -5,10 +5,13 @@ pub mod naming;
 pub mod poi;
 pub mod stealth;
 pub mod system_addresses;
+pub mod test_ids;
 pub mod types;
 
 // Re-exports for convenience
-pub use types::{AccountId, Namespace, PeerId, ProgramId, ValidatorAddress, VoterId};
+pub use types::{
+    AccountId, Namespace, PeerId, ProgramId, ValidatorAddress, VoterId, WorkerId,
+};
 
 pub use naming::{
     GenesisNameConfig, NameError, NameRecord, NameRegistry, NameValidation, SilicaName,
@@ -16,10 +19,11 @@ pub use naming::{
 };
 
 pub use system_addresses::{
-    is_reserved_address, system_account_from_address, validate_recipient, validate_sender,
-    SystemAccountType, SystemAddressError, SystemPermissions, KEYED_SYSTEM_ACCOUNT_NAMES,
-    KEYLESS_SYSTEM_ACCOUNTS, SYSTEM_CONDUIT, SYSTEM_FURNACE, SYSTEM_LEVY, SYSTEM_ORIGIN,
-    SYSTEM_REGISTRY, SYSTEM_VOID,
+    is_reserved_address, keyless_system_accounts, system_account_from_address, validate_recipient,
+    validate_sender, SystemAccountId, SystemAccountType, SystemAddressError, SystemPermissions,
+    KEYED_SYSTEM_ACCOUNT_NAMES, KEYLESS_SYSTEM_ACCOUNTS, SYSTEM_BRIDGE, SYSTEM_CONDUIT,
+    SYSTEM_DEVFUND, SYSTEM_FAUCET, SYSTEM_FURNACE, SYSTEM_GOVERNANCE, SYSTEM_LEVY, SYSTEM_ORIGIN,
+    SYSTEM_REGISTRY, SYSTEM_REWARDS, SYSTEM_TREASURY, SYSTEM_VOID,
 };
 
 pub use stealth::{

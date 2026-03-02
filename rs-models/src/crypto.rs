@@ -1,3 +1,5 @@
+use crate::AccountId;
+use crate::ValidatorAddress;
 /// Shared cryptographic primitives and types for the Chert ecosystem
 ///
 /// This module provides common cryptographic building blocks that ensure
@@ -574,8 +576,20 @@ impl ChertKeyPair {
         }
     }
 
+    /// Get account address derived from public key (for wallets/staking)
+    pub fn account(&self) -> AccountId {
+        AccountId::new(self.pubkey_to_address("ACCOUNT"))
+            .expect("pubkey_to_address(ACCOUNT) must always produce a valid AccountId")
+    }
+
+    /// Get node address derived from public key (for validators)
+    pub fn node(&self) -> ValidatorAddress {
+        ValidatorAddress::new(self.pubkey_to_address("NODE"))
+            .expect("pubkey_to_address(NODE) must always produce a valid ValidatorAddress")
+    }
+
     /// Get quantum-resistant address derived from public key using SHA-3
-    pub fn address(&self, address_type: &str) -> String {
+    pub fn pubkey_to_address(&self, address_type: &str) -> String {
         use sha3::{Digest, Sha3_256};
 
         let mut hasher = Sha3_256::new();
@@ -1335,11 +1349,11 @@ mod tests {
         let seed = [42u8; 32];
         let kp = ChertKeyPair::generate_ml_dsa_from_seed(&seed, MlDsaLevel::Dsa44).unwrap();
 
-        let address = kp.address("USER");
+        let address = kp.account();
 
         // Address should be deterministic
         let kp2 = ChertKeyPair::generate_ml_dsa_from_seed(&seed, MlDsaLevel::Dsa44).unwrap();
-        let address2 = kp2.address("USER");
+        let address2 = kp2.account();
 
         assert_eq!(address, address2);
 

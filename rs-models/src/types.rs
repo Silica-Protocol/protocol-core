@@ -4,6 +4,7 @@
 
 use std::borrow::Borrow;
 use std::fmt::{Display, Formatter};
+use std::str::FromStr;
 use std::sync::Arc;
 
 use serde::de::{Deserializer, Error as DeError};
@@ -15,13 +16,59 @@ use serde::{Deserialize, Serialize};
 // ============================================================================
 
 /// Maximum length of a peer identifier in bytes.
-pub const MAX_PEER_ID_LEN: usize = 256;
+pub const MAX_PEER_ID_LEN: usize = 68;
 
 /// Maximum length of a validator address string in bytes.
-pub const MAX_VALIDATOR_LEN: usize = 130;
+pub const MAX_VALIDATOR_LEN: usize = 43;
+
+/// Maximum length of a worker identifier string in bytes.
+pub const MAX_WORKER_ID_LEN: usize = 68;
 
 /// Maximum length of an account address in bytes.
-pub const MAX_ACCOUNT_ADDR_LEN: usize = 64;
+pub const MAX_ACCOUNT_ADDR_LEN: usize = 42;
+
+/// Fixed payload length for account and validator addresses (20 bytes, 40 hex chars).
+pub const ADDRESS_HEX_PAYLOAD_LEN: usize = 40;
+
+/// Fixed payload length for peer and worker ids (32 bytes, 64 hex chars).
+pub const NODE_ID_HEX_PAYLOAD_LEN: usize = 64;
+
+fn validate_prefixed_hex(
+    value: &str,
+    prefix: &str,
+    payload_hex_len: usize,
+    type_name: &str,
+) -> anyhow::Result<()> {
+    let expected_len = prefix.len() + payload_hex_len;
+
+    if value.len() != expected_len {
+        return Err(anyhow::anyhow!(
+            "{} must be exactly {} characters (prefix '{}' + {} hex chars)",
+            type_name,
+            expected_len,
+            prefix,
+            payload_hex_len
+        ));
+    }
+
+    if !value.starts_with(prefix) {
+        return Err(anyhow::anyhow!(
+            "{} must start with '{}'",
+            type_name,
+            prefix
+        ));
+    }
+
+    let payload = &value[prefix.len()..];
+    if !payload.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(anyhow::anyhow!(
+            "{} payload must contain only hex characters",
+            type_name
+        ));
+    }
+
+    Ok(())
+}
 
 /// Maximum length of a namespace identifier in bytes.
 pub const MAX_NAMESPACE_LEN: usize = 32;
@@ -42,16 +89,18 @@ impl PeerId {
     /// Construct a new peer ID, enforcing length bounds.
     pub fn new(value: impl AsRef<str>) -> anyhow::Result<Self> {
         let value_ref = value.as_ref();
-        if value_ref.is_empty() {
-            return Err(anyhow::anyhow!("PeerId cannot be empty"));
-        }
-        if value_ref.len() > MAX_PEER_ID_LEN {
-            return Err(anyhow::anyhow!("PeerId exceeds maximum length"));
-        }
-        if value_ref.chars().any(char::is_control) {
-            return Err(anyhow::anyhow!("PeerId contains control characters"));
-        }
+        validate_prefixed_hex(
+            value_ref,
+            "PEER",
+            NODE_ID_HEX_PAYLOAD_LEN,
+            "PeerId",
+        )?;
         Ok(Self(Arc::from(value_ref)))
+    }
+
+    /// Explicit parser for network peer identity input.
+    pub fn from_peer_str(value: &str) -> anyhow::Result<Self> {
+        Self::new(value)
     }
 
     /// Borrow the peer ID as a string slice.
@@ -121,15 +170,33 @@ impl Borrow<str> for PeerId {
     }
 }
 
-impl From<String> for PeerId {
-    fn from(s: String) -> Self {
-        Self(Arc::from(s))
+impl From<PeerId> for String {
+    fn from(p: PeerId) -> Self {
+        p.as_string()
     }
 }
 
-impl From<&str> for PeerId {
-    fn from(s: &str) -> Self {
-        Self(Arc::from(s))
+impl TryFrom<&str> for PeerId {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl TryFrom<String> for PeerId {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl FromStr for PeerId {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::new(s)
     }
 }
 
@@ -146,18 +213,18 @@ impl ValidatorAddress {
     /// Construct a new validator address.
     pub fn new(value: impl AsRef<str>) -> anyhow::Result<Self> {
         let value_ref = value.as_ref();
-        if value_ref.is_empty() {
-            return Err(anyhow::anyhow!("ValidatorAddress cannot be empty"));
-        }
-        if value_ref.len() > MAX_VALIDATOR_LEN {
-            return Err(anyhow::anyhow!("ValidatorAddress exceeds maximum length"));
-        }
-        if value_ref.chars().any(char::is_control) {
-            return Err(anyhow::anyhow!(
-                "ValidatorAddress contains control characters"
-            ));
-        }
+        validate_prefixed_hex(
+            value_ref,
+            "VAL",
+            ADDRESS_HEX_PAYLOAD_LEN,
+            "ValidatorAddress",
+        )?;
         Ok(Self(Arc::from(value_ref)))
+    }
+
+    /// Explicit parser for validator consensus identity input.
+    pub fn from_validator_str(value: &str) -> anyhow::Result<Self> {
+        Self::new(value)
     }
 
     pub fn as_str(&self) -> &str {
@@ -230,15 +297,151 @@ impl Borrow<str> for ValidatorAddress {
     }
 }
 
-impl From<String> for ValidatorAddress {
-    fn from(s: String) -> Self {
-        Self(Arc::from(s))
+impl TryFrom<&str> for ValidatorAddress {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::new(value)
     }
 }
 
-impl From<&str> for ValidatorAddress {
-    fn from(s: &str) -> Self {
-        Self(Arc::from(s))
+impl TryFrom<String> for ValidatorAddress {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl From<ValidatorAddress> for String {
+    fn from(v: ValidatorAddress) -> Self {
+        v.as_string()
+    }
+}
+
+impl FromStr for ValidatorAddress {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::new(s)
+    }
+}
+
+// ============================================================================
+// WorkerId - Alluvium worker identifier
+// ============================================================================
+
+/// Worker identifier for Alluvium data-plane operations.
+/// This identifier is distinct from validator consensus identity.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+pub struct WorkerId(Arc<str>);
+
+impl WorkerId {
+    /// Construct a new worker identifier.
+    pub fn new(value: impl AsRef<str>) -> anyhow::Result<Self> {
+        let value_ref = value.as_ref();
+        validate_prefixed_hex(
+            value_ref,
+            "WORK",
+            NODE_ID_HEX_PAYLOAD_LEN,
+            "WorkerId",
+        )?;
+        Ok(Self(Arc::from(value_ref)))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn as_string(&self) -> String {
+        self.as_str().to_string()
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.as_str().as_bytes()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.as_str().is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.as_str().len()
+    }
+
+    pub fn chars(&self) -> std::str::Chars<'_> {
+        self.as_str().chars()
+    }
+
+    pub fn starts_with(&self, prefix: &str) -> bool {
+        self.as_str().starts_with(prefix)
+    }
+}
+
+impl Display for WorkerId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl Serialize for WorkerId {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for WorkerId {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value: std::borrow::Cow<'_, str> = std::borrow::Cow::deserialize(deserializer)?;
+        WorkerId::new(value.as_ref()).map_err(|err| DeError::custom(err.to_string()))
+    }
+}
+
+impl AsRef<str> for WorkerId {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl Borrow<str> for WorkerId {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl TryFrom<&str> for WorkerId {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl TryFrom<String> for WorkerId {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl From<WorkerId> for String {
+    fn from(v: WorkerId) -> Self {
+        v.as_string()
+    }
+}
+
+impl FromStr for WorkerId {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::new(s)
     }
 }
 
@@ -255,22 +458,13 @@ impl AccountId {
     /// Construct a new account ID.
     pub fn new(value: impl AsRef<str>) -> anyhow::Result<Self> {
         let value_ref = value.as_ref();
-        if value_ref.is_empty() {
-            return Err(anyhow::anyhow!("AccountId cannot be empty"));
-        }
-        if value_ref.len() > MAX_ACCOUNT_ADDR_LEN {
-            return Err(anyhow::anyhow!("AccountId exceeds maximum length"));
-        }
-        if value_ref.chars().any(char::is_control) {
-            return Err(anyhow::anyhow!("AccountId contains control characters"));
-        }
+        validate_prefixed_hex(value_ref, "0x", ADDRESS_HEX_PAYLOAD_LEN, "AccountId")?;
         Ok(Self(Arc::from(value_ref)))
     }
 
-    /// Construct an AccountId without validation.
-    /// Use with caution - only for known-valid addresses.
-    pub fn from_unchecked(value: impl Into<String>) -> Self {
-        Self(Arc::from(value.into()))
+    /// Explicit parser for account identity input.
+    pub fn from_account_str(value: &str) -> anyhow::Result<Self> {
+        Self::new(value)
     }
 
     /// Borrow the account ID as a string slice.
@@ -309,17 +503,13 @@ impl AccountId {
     /// Check if the address has valid hex format (0x prefix + 40 hex chars)
     pub fn is_valid_format(&self) -> bool {
         let s = self.as_str();
-        s.starts_with("0x") && s.len() == 42
+        s.starts_with("0x") && s.len() == MAX_ACCOUNT_ADDR_LEN
     }
 
     /// Check if the address contains only valid hex characters (after 0x prefix)
     pub fn has_invalid_chars(&self) -> bool {
         let s = self.as_str();
-        if s.starts_with("0x") {
-            s[2..].chars().any(|c| !c.is_ascii_hexdigit())
-        } else {
-            s.chars().any(|c| !c.is_ascii_hexdigit())
-        }
+        !s[2..].chars().all(|c| c.is_ascii_hexdigit())
     }
 }
 
@@ -360,15 +550,39 @@ impl Borrow<str> for AccountId {
     }
 }
 
-impl From<String> for AccountId {
-    fn from(s: String) -> Self {
-        Self(Arc::from(s))
+impl Default for AccountId {
+    fn default() -> Self {
+        Self(Arc::from("0x0000000000000000000000000000000000000000"))
     }
 }
 
-impl From<&str> for AccountId {
-    fn from(s: &str) -> Self {
-        Self(Arc::from(s))
+impl TryFrom<&str> for AccountId {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl TryFrom<String> for AccountId {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl From<AccountId> for String {
+    fn from(a: AccountId) -> Self {
+        a.as_string()
+    }
+}
+
+impl FromStr for AccountId {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::new(s)
     }
 }
 
@@ -441,6 +655,18 @@ impl<'de> Deserialize<'de> for Namespace {
 impl AsRef<str> for Namespace {
     fn as_ref(&self) -> &str {
         self.as_str()
+    }
+}
+
+impl Borrow<str> for Namespace {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl Namespace {
+    pub fn as_bytes(&self) -> &[u8] {
+        self.as_str().as_bytes()
     }
 }
 
@@ -594,5 +820,61 @@ impl From<AccountId> for VoterId {
 impl From<ValidatorAddress> for VoterId {
     fn from(id: ValidatorAddress) -> Self {
         VoterId::Validator(id)
+    }
+}
+
+impl std::cmp::PartialOrd for VoterId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl std::cmp::Ord for VoterId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.as_str().cmp(other.as_str())
+    }
+}
+
+impl AsRef<str> for VoterId {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl std::borrow::Borrow<str> for VoterId {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl Display for VoterId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl TryFrom<&str> for VoterId {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        if value.starts_with("VAL") {
+            return Ok(VoterId::Validator(ValidatorAddress::new(value)?));
+        }
+
+        if value.starts_with("0x") {
+            return Ok(VoterId::Account(AccountId::new(value)?));
+        }
+
+        Err(anyhow::anyhow!(
+            "VoterId must be canonical AccountId (0x...) or ValidatorAddress (VAL...)"
+        ))
+    }
+}
+
+impl TryFrom<String> for VoterId {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
     }
 }
