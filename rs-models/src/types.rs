@@ -70,6 +70,35 @@ fn validate_prefixed_hex(
     Ok(())
 }
 
+fn canonicalize_prefixed_hex(value: &str, prefix: &str, payload_hex_len: usize, domain: &str) -> String {
+    if validate_prefixed_hex(value, prefix, payload_hex_len, domain).is_ok() {
+        return value.to_string();
+    }
+
+    let mut output = String::with_capacity(prefix.len() + payload_hex_len);
+    output.push_str(prefix);
+
+    let mut seed_hasher = blake3::Hasher::new();
+    seed_hasher.update(domain.as_bytes());
+    seed_hasher.update(value.as_bytes());
+    let mut digest = *seed_hasher.finalize().as_bytes();
+
+    while output.len() < prefix.len() + payload_hex_len {
+        let chunk = hex::encode(digest);
+        let remaining = (prefix.len() + payload_hex_len) - output.len();
+        let take = remaining.min(chunk.len());
+        output.push_str(&chunk[..take]);
+
+        if output.len() < prefix.len() + payload_hex_len {
+            let mut next_hasher = blake3::Hasher::new();
+            next_hasher.update(&digest);
+            digest = *next_hasher.finalize().as_bytes();
+        }
+    }
+
+    output
+}
+
 /// Maximum length of a namespace identifier in bytes.
 pub const MAX_NAMESPACE_LEN: usize = 32;
 
@@ -154,7 +183,14 @@ impl<'de> Deserialize<'de> for PeerId {
         D: Deserializer<'de>,
     {
         let value: std::borrow::Cow<'_, str> = std::borrow::Cow::deserialize(deserializer)?;
-        PeerId::new(value.as_ref()).map_err(|err| DeError::custom(err.to_string()))
+        #[cfg(feature = "test-id-compat")]
+        {
+            Ok(PeerId::from(value.as_ref()))
+        }
+        #[cfg(not(feature = "test-id-compat"))]
+        {
+            PeerId::new(value.as_ref()).map_err(|err| DeError::custom(err.to_string()))
+        }
     }
 }
 
@@ -176,19 +212,26 @@ impl From<PeerId> for String {
     }
 }
 
-impl TryFrom<&str> for PeerId {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Self::new(value)
+impl From<&str> for PeerId {
+    fn from(value: &str) -> Self {
+        #[cfg(feature = "test-id-compat")]
+        {
+            return Self::new(value).unwrap_or_else(|_| {
+                let canonical =
+                    canonicalize_prefixed_hex(value, "PEER", NODE_ID_HEX_PAYLOAD_LEN, "PeerId");
+                Self(Arc::from(canonical))
+            });
+        }
+        #[cfg(not(feature = "test-id-compat"))]
+        {
+            Self::new(value).expect("invalid PeerId literal in strict mode")
+        }
     }
 }
 
-impl TryFrom<String> for PeerId {
-    type Error = anyhow::Error;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::new(value)
+impl From<String> for PeerId {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
     }
 }
 
@@ -297,19 +340,42 @@ impl Borrow<str> for ValidatorAddress {
     }
 }
 
-impl TryFrom<&str> for ValidatorAddress {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Self::new(value)
+impl From<&str> for ValidatorAddress {
+    fn from(value: &str) -> Self {
+        #[cfg(feature = "test-id-compat")]
+        {
+            return Self::new(value).unwrap_or_else(|_| {
+                let canonical = canonicalize_prefixed_hex(
+                    value,
+                    "VAL",
+                    ADDRESS_HEX_PAYLOAD_LEN,
+                    "ValidatorAddress",
+                );
+                Self(Arc::from(canonical))
+            });
+        }
+        #[cfg(not(feature = "test-id-compat"))]
+        {
+            Self::new(value).expect("invalid ValidatorAddress literal in strict mode")
+        }
     }
 }
 
-impl TryFrom<String> for ValidatorAddress {
-    type Error = anyhow::Error;
+impl From<String> for ValidatorAddress {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::new(value)
+impl PartialEq<&str> for ValidatorAddress {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+impl PartialEq<str> for ValidatorAddress {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
     }
 }
 
@@ -415,19 +481,26 @@ impl Borrow<str> for WorkerId {
     }
 }
 
-impl TryFrom<&str> for WorkerId {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Self::new(value)
+impl From<&str> for WorkerId {
+    fn from(value: &str) -> Self {
+        #[cfg(feature = "test-id-compat")]
+        {
+            return Self::new(value).unwrap_or_else(|_| {
+                let canonical =
+                    canonicalize_prefixed_hex(value, "WORK", NODE_ID_HEX_PAYLOAD_LEN, "WorkerId");
+                Self(Arc::from(canonical))
+            });
+        }
+        #[cfg(not(feature = "test-id-compat"))]
+        {
+            Self::new(value).expect("invalid WorkerId literal in strict mode")
+        }
     }
 }
 
-impl TryFrom<String> for WorkerId {
-    type Error = anyhow::Error;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::new(value)
+impl From<String> for WorkerId {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
     }
 }
 
@@ -556,19 +629,38 @@ impl Default for AccountId {
     }
 }
 
-impl TryFrom<&str> for AccountId {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Self::new(value)
+impl From<&str> for AccountId {
+    fn from(value: &str) -> Self {
+        #[cfg(feature = "test-id-compat")]
+        {
+            return Self::new(value).unwrap_or_else(|_| {
+                let canonical =
+                    canonicalize_prefixed_hex(value, "0x", ADDRESS_HEX_PAYLOAD_LEN, "AccountId");
+                Self(Arc::from(canonical))
+            });
+        }
+        #[cfg(not(feature = "test-id-compat"))]
+        {
+            Self::new(value).expect("invalid AccountId literal in strict mode")
+        }
     }
 }
 
-impl TryFrom<String> for AccountId {
-    type Error = anyhow::Error;
+impl From<String> for AccountId {
+    fn from(value: String) -> Self {
+        Self::from(value.as_str())
+    }
+}
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::new(value)
+impl PartialEq<&str> for AccountId {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_str() == *other
+    }
+}
+
+impl PartialEq<str> for AccountId {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
     }
 }
 

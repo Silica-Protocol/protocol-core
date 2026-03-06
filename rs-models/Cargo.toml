@@ -6,6 +6,11 @@ license.workspace = true
 repository.workspace = true
 description = "Core data models and cryptographic primitives for the Silica Protocol"
 
+[features]
+default = []
+# Enables permissive string-to-typed-ID coercions intended for tests/migration only.
+test-id-compat = []
+
 [dependencies]
 # Serialization
 serde = { workspace = true }

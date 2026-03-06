@@ -597,8 +597,12 @@ impl ChertKeyPair {
         hasher.update(&self.public_key);
         let hash = hasher.finalize();
 
-        // Take first 20 bytes and encode as hex with '0x' prefix
-        format!("0x{}", hex::encode(&hash[..20]))
+        // Take first 20 bytes and encode with domain-specific prefix.
+        let payload = hex::encode(&hash[..20]);
+        match address_type {
+            "NODE" => format!("VAL{}", payload),
+            _ => format!("0x{}", payload),
+        }
     }
 
     /// Save keypair to file (use with caution in production)
@@ -852,8 +856,11 @@ pub mod utils {
         hasher.update(format!("CHERT_ADDRESS_{}_V2", address_type).as_bytes());
         hasher.update(public_key);
         let hash = hasher.finalize();
-
-        format!("0x{}", hex::encode(&hash[..20]))
+        let payload = hex::encode(&hash[..20]);
+        match address_type {
+            "NODE" => format!("VAL{}", payload),
+            _ => format!("0x{}", payload),
+        }
     }
 
     /// Verify address was derived from public key using constant-time comparison
